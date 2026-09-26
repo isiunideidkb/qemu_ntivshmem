@@ -1,0 +1,151 @@
+[tutorial]
+//[] receives a number,if the number whose prior to another number which "Another one [] receives a number", the correnpondence performing sequence prior to "Another one"
+//we call it "DIALOG"
+//NOTE为了保证原子性 无论是host 还是 client 都需要做完操作后 最后 才会设置Flag
+//NOTE 基本的顺序的就是 host设置1 host等待 client有消息发送就设置0 host接受 host处理 host设置回1  继续下一个循环 host和client本质上都是同一个等待模型
+
+[0]
+data: <PlatformIndependentAddressType>
+length: <an 32bit value for data length>
+requires length range [32MB,4GB]
+
+[1] initialize
+
+data Addr Space
+<2byte ushort for Hello> <4byte address length>
+LowAddr <-> HighAddr
+---All Zero Filled---
+
+which in Hello:
+Low 1byte HelloMessage
+High 1byte capability mask
+  which in capability mask
+  bit0: does it suports UMONITOR extension   1 yes 0 no
+  bit1: does it supports PhysAddr passthrough 1 yes 0 no
+  bit2: client error return bit,host is expected to set the bit as 0
+  bit3-7: reserved
+//note 4byte address length is a 4byte unsigned int
+host init
+host send the a proper message to client
+host set 1 to LowAddr of Hello in the end
+then host wait the 2byte short for Hello, no timeout (aka. host wait)
+
+client will init now
+client will check this Hello msg first, then check the accuracy of capability mask, and compare the Client-side data size and Host-side data size(length) to ensure that the length are accurate
+client if it's inaccurate set 1 to capability mask bit2 and write 0 to LowAddr of Hello,set 0 to LowAddr of Hello simultaneously to notify the host,then interrupt&end this DIALOG
+client if it's accurate just set 0 to LowAddr of Hello to notify the host in the end
+client wait for the LowAddr of Hello(aka. client wait)
+
+when host received the result,check the ErrorMask then
+no matter what,the host will clean the whole Addr Space! filled with zero
+
+[2] functions dispatch
+
+data Addr Space
+<2byte ushort for Flag> <2byte int for split number> <4byte bytes per split>
+LowAddr <-> HighAddr
+---All Zero Filled---
+
+note: the max vlaue of split number is 65535 unsigned int, requires <split number> ge(>=) 1
+note: the bytes per split is 4byte unsigned int, requires the <bytes per split> must be the power of 2 and greater|equals than 2MB
+which in 2byte short for Flag:
+  LowAddr FlagItSelf
+  HighAddr ErrorCode
+  which in ErrorCode
+    0x0 OK
+    0x1 ILLEGAL FUNC COUNT
+    0x2 ILLEGAL SPACE COUNT
+    ge 0x3 OTHER ERROR,reserved
+    
+host prepare the functions set the <split number>,<bytes per split>
+host set the 1 to LowAddr of Flag
+then host wait the LowAddr of Flag, no timeout
+
+client received the message, prepare the functions offsets
+if clients can't set the function-space will set the Error Code to HighAddr of Flag,then set 0 to LowAddr of Flag to notify the host,interrupt&close this DIALOG
+else direclty set 0 to LowAddr of Flag to notify the host
+client wait,no timeout
+
+host received the Flag,check the ErrorCode
+finally,host will set all zero filled
+thus,all of client & host located each the function's head Flag
+
+[3] functions content
+
+(<function head> <function body>) ...
+LowAddr <-> HighAddr
+---All Zero Filled--- 
+
+requires <function body> + <function head> == <bytes per split>
+which in <function head>
+  Low 1byte Flag
+  High 1byte FuncNumber
+  which in FuncNumber
+    0x0 huge page SHM,see blow
+    0x1 SHM
+    0x2 rpc function
+    ... reserved no function
+    
+the huge page SHM
+  this is used by non-SHM function,it can be read only while non-SHM function's Flag is 1(shm)
+  the huge page SHM occupies one or more splits,and there's mere one Flag is available
+the huge page SHM layout
+<huge SHM Flag> <4byte bytes for huge SHM size> <huge SHM body>
+LowAddr <-> HighAddr
+---All Zero Filled--- 
+which in the <huge SHM Flag>
+  Low 1byte Flag reserved DONOT READ&WRITE 0x1 for constant
+  High 1byte Flag READONLY 0x0 for constant
+requires <huge SHM Flag> + <huge SHM size> +<huge SHM body> = <any_pos_integer> * <bytes per split>
+NOTE: make the SHM space inhabits on the tail space of <data> as mush as possible,but it's not a contraint
+
+the SHM
+similar to huge page SHM,the SHM is similar to huge page SHM,but they still have some differents
+the SHM layout
+<SHM Flag> <SHM body>
+LowAddr <-> HighAddr
+---All Zero Filled---
+differ to huge page SHM,the SHM(<SHM Flag> + <SHM body>) occupies <bytes per split> bytes
+which in <SHm Flag>
+  LowAddr Reserved DONOT READWRITE 0x1 for constant
+  HighAddr Reserved DONOT READ 0x1 for constant
+the SHM is used by Non-SHM functions as well
+
+
+
+
+the rpc function
+
+a super simple rpc function
+
+NOTE: rpc do not check or match any size|type|offset information, the parameter,return info must be convented between client&host
+
+layout
+<rpc flag> <rpc body>
+LowAddr <-> HighAddr
+---All Zero Filled---
+
+<which in rpc flag>
+LowAddr call Flag
+HighAddr reserved for constant 0x2
+
+<which in rpc body>
+  <parameters> <result>
+  LowAddr <-> HighAddr
+  there's not fixed size for all
+
+in implementations,parameters and result can passed via SHM,huge page SHM but there's no standard method,rely entirely on the conventions
+e.g. parameter is a 64byte struct,but return is a super large buffer which beyonds the <bytes per split>, the host&client can define a protocol where host creates a huge page,map/copy the memory to such huge SHM,the result in <rpc body> can be wrote just 4byte that it stand for the offset of <splits>,actually it looks like another representation of pointer
+
+host&client's convention must guarantee the "<parameters> + <result> <= <bytes per split>"
+
+concrete rpc procedure similar to the before steps:
+1. host set the Function to 1 to Flag, except that, there's no other read&write, host wait the Flag to be 0
+2. the client pass the args,the host is waiting simultaneously
+3. client pull the Flag to 0 to notify the host,client wait the Flag to be 1
+4. host read the arg,clean args,write the result after args,pull back to 1
+5. client received the Flag,read the result,end
+6. client clean result
+7. back to 1
+
+rpcs are anonymous,the concrete steps also depends on the conventions
