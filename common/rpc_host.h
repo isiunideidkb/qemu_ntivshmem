@@ -2,11 +2,12 @@
   coding style C23 + GCC(MinGW)
   clang-format --style=LLVM
   common rpc protocol for host
-  compile with -mwaitpkg
   use nullptr instead of NULL
 */
+
+/* ===== PLATFORM CHECK ===== */
 #pragma once
-#ifundef __GNU__
+#ifndef __GNU__
 #error "wrong platform"
 #endif
 
@@ -14,20 +15,93 @@
 #error "wrong stdc version"
 #endif
 
+/* ===== PLATFORM SWITCH ===== */
+//clean predefs
+#if defined(__USE_WINDOWS__)
+#undef __USE_WINDOWS__
+#endif
+#if defined(__USE_WAITPKG__)
+#undef __USE_WAITPKG__
+#endif
+#if defined(__USE_LINUX__)
+#undef __USE_LINUX__
+#endif
+
+//ENABLE_* manually selected macro,must be platform suited(throw error if it's not matched)
+//note: WAITPKG is optionally,but can not appeared as single option
+#if defined(ENABLE_WINDOWS)
+/* ===== cond1 ===== */
+#if __has_include(<windows.h>) && defined(__MINGW32__)
+#define __USE_WINDOWS__
+#pragma message "using win32 api"
+#else
+#error "there's no windows sdk,making sure you're using mingw"
+#endif
+/* ===== cond1 ===== */
+#elif defined(ENABLE_LINUX)
+/* ===== cond2 ===== */
+#if __has_include(<linux/futex.h>) && defined(__gnu_linux__)
+#define __USE_LINUX__
+#pragma message "using linux futex api"
+#else
+#error "there's no futex headers,making sure you're using gcc"
+#endif
+/* ===== cond2 ===== */
+#endif
+
+#if defined(ENABLE_WAITPKG) //note : waitpkg is paralled with system specific api
+/* ===== cond3 ===== */
+#if __has_builtin(__builtin_ia32_umwait) && __has_builtin(__builtin_ia32_umonitor)
+#define __USE_WAITPKG__
+#pragma message "using waitpkg intrinsics"
+#else
+#error "making sure you specified -mwaitpkg option"
+#endif
+/* ===== cond3 ===== */
+#endif
+
+#if !defined(ENABLE_WINDOWS) && !defined(ENABLE_WAITPKG) && !defined(ENABLE_LINUX)
+/* ===== cond4 ===== */
+#pragma message "mathing automaticly"
+#if __has_builtin(__builtin_ia32_umwait) && __has_builtin(__builtin_ia32_umonitor)
+#pragma message "using waitpkg"
+#define __USE_WAITPKG__
+#endif
+//note : waitpkg is paralled with system specific api
+#if __has_include(<linux/futex.h>) && defined(__gnu_linux__)
+#pragma message "using linux futex api"
+#define __USE_LINUX__
+#elif __has_include(<windows.h>) && defined(__MINGW32__)
+#pragma message "using win32 api"
+#define __USE_WINDOWS__
+#elifndef __USE_WAITPKG__
+#error "can not select the platform api"
+#endif
+/* ===== cond4 ===== */
+#endif
+
+/* ===== HEADERS ===== */
 #include <string.h>
-#include <immintrin.h>
-
-//hack please remove this include header
-#include <assert.h>
-
 #include <stdlib.h>
 #include <stdio.h>
+#ifdef __USE_WINDOWS__
+#include <windows.h>
+#endif
+#ifdef __USE_LINUX__
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/futex.h>
+#endif
+#ifdef __USE_WAITPKG__
+#include <immintrin.h>
+#endif
+
+/* ===== UTILITY MACROS ===== */
 #ifdef _ENABLE_LOG
 #define LOG(content, ...) printf(content"\n"  __VA_OPT__(,) __VA_ARGS__);
 #else
 #define LOG(content, ...)
 #endif
-
 #ifundef assert
 #define assert(cond,content) if(cond) {/* do nothing*/} else { printf(content"\n"); exit(-1); }
 #else
@@ -179,11 +253,11 @@ bool host_check_dispatches(host_dispatch_t* hdt){
   struct __disp_list* cur_node = hdt->head;
   while(true) {
     if(cur_node == nullptr) {
-      LOG("[CHECK] end\n");
+      LOG("[CHECK] end");
       break;
     }
     if(cur_node->length == 0 | cur_node->base_addr == nullptr) {
-      LOG("[CHECK] invalid fields\n"); 
+      LOG("[CHECK] invalid fields"); 
       stat = false;
     }
     cur_node += length;
@@ -218,7 +292,15 @@ write hello msg for host
 atomicly(using gcc intrinsics) & block(using umonitor)
 do not call not asyncly
 */
-[[gnu::target("waitpkg")]] void hello_handshake_umonitor(host_handshake_t* out_ptr,void* addr){
+
+#ifdef __USE_WAITPKG__
+void host_run_hello_handshake(host_handshake_t* out_ptr,void* addr) {
+//todo roll back hello_handshake_system if it's not support waitpkg ISA
+  if (is_support_umonitor()) {
+    LOG("rolling back system");
+    host_run_hello_handshake_system(out_ptr,addr);
+    return;
+  }
   host_handshake_t* dest = addr;
   __atomic_store_n(&dest,&out_ptr,__ATOMIC_RELEASE);
   //wait client
@@ -230,5 +312,12 @@ waiting:
     goto waiting;
   return;
 }
+#endif
 
-[[gnu::target("waitpkg")]] void hello_dispatch_handshake();
+#ifdef __USE_WINDOWS__
+//provids host_run_*_system function
+#endif
+
+ifdef __USE_LINUX__
+//provids host_run_*_system function
+#endif
