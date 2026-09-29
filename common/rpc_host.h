@@ -15,6 +15,9 @@
 #error "wrong stdc version"
 #endif
 
+//todo atomic instrincs check: using __has_attrubute(target) or related builtin
+//see GCC documentation for details
+
 /* ===== PLATFORM SWITCH ===== */
 //clean predefs
 #if defined(__USE_WINDOWS__)
@@ -84,6 +87,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "umonitor_check.h"
+#include <immintrin.h>
 #ifdef __USE_WINDOWS__
 #include <windows.h>
 #endif
@@ -93,7 +98,6 @@
 #include <linux/futex.h>
 #endif
 #ifdef __USE_WAITPKG__
-#include <immintrin.h>
 #endif
 
 /* ===== UTILITY MACROS ===== */
@@ -109,14 +113,7 @@
 #endif
 
 /* ========== protocol abstraction routine ========== */
-
-typedef struct [[gnu::packed]] _function_info_t {
-  unsigned short flag;
-  unsigned short split_number;
-  unsigned short _1_bytes_per_split;
-  unsigned short _2_bytes_per_split;
-} function_info_t;
-
+//quickdoc: abstract hello handshake memlayout structure, in stage 1
 typedef struct [[gnu::packed]] _host_handshake_t {
   char hello_message;
   char cap_mask;
@@ -126,7 +123,7 @@ typedef struct [[gnu::packed]] _host_handshake_t {
   char _4_length;
 } host_handshake_t;
 
-
+//quickdoc: abstract dispatch handshake memlayout structure, in stage 2
 typedef struct [[gnu::packed]] _host_dispatch_handshake_t {
   char flag_lowaddr;
   char flag_highaddr;
@@ -134,6 +131,7 @@ typedef struct [[gnu::packed]] _host_dispatch_handshake_t {
   unsigned short bytes_per_split;
 } host_dispatch_handshake_t;
 
+//quickdoc: dispatch_type used by dispatch handshake protocol
 enum dispatch_type {
   SHM,
   HUGE_SHM,
@@ -141,14 +139,15 @@ enum dispatch_type {
 }
 
 typedef void(*dispatch_func_t)(struct __disp_list* self);
-//private struct
+//quickdoc: this is private struct,stores every function info node in RPC protocol,in stage 3
 struct [[gnu::packed]] __disp_list {
   dispatch_func_t dispatch_function; // nullptr if SHM/HUGE_SHM
   unsigned int length; //include flag
   void* base_addr; //include flag
   dispatch_type d_t;
-  struct __disp_list* next;
+  struct __disp_list* next; //represent as linked list which node represents single function,linear layout,
 }
+//quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
 typedef struct [[gnu::packed]] _host_dispatch_t {
   struct __disp_list head;
   struct __disp_list end; //works only head >= 1,
@@ -156,7 +155,9 @@ typedef struct [[gnu::packed]] _host_dispatch_t {
   void* start_addr;
 } host_dispatch_t;
 
+//quickdoc: note: all of these functions's out parameter ptr, the lifetime of these ptr owned by CALLER!
 
+//quickdoc: this requires  hello handshake init, init a dispatch handshake structure, starge 2
 void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_handshake_t* hht_out,
                                  unsigned short psplit_number,unsigned short pbytes_per_split) {
   assert(hdh_out != nullptr && hht_out != nullptr,"[DISSHAKE-ASSERT] wrong param, nullptr");
@@ -171,6 +172,7 @@ void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_hands
   hdh_ptr->split_bytes_per_split = pbytes_per_split
 }
 
+//quickdoc: this requires dispatch handshake init,init a host_dispatch_t(i.e. represents concrete dispatch functions type)
 void host_dispatch_init(host_dispatch_t* hdt_out, host_dispatch_handshake_t* hdh_out,
                        host_handshake_t* hht_out, void* addr) {
   assert(hdt_out != nullptr && hdh_out != nullptr && hht_out != nullptr && addr != nullptr,"[DIS-ASSERT] wrong param, nullptr");
@@ -183,6 +185,7 @@ void host_dispatch_init(host_dispatch_t* hdt_out, host_dispatch_handshake_t* hdh
   return;
 }
 
+//quickdoc: clean the resource created by append_node, WARNING THIS FUNCTION DO NOT CLEAN hdt_out,the ptr's lifetime owned by caller
 void host_dispatch_destory_node(host_dispatch_t* hdt_out) {
   assert(hdt_out != nullptr,"[DISDES-ASSERT] wrong param, nullptr");
   if(hdt_out->head == nullptr) {
@@ -210,6 +213,9 @@ if dispatch_type == SHM
   assert that the len == <bytes per split>
 if dispatch_type == HUEG_SHM
   assert that the len % <bytes per split> == 0
+
+
+quickdoc: append node,which node represents single function,linear layout,represent as linked list  
 */
 void host_dispatch_append_node(host_dispatch_t* hdt_out, void* addr,
                                host_dispatch_handshake_t* hdh_out, dispatch_func_t df,
@@ -288,36 +294,111 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
 //note: the following routines are platform dependent
 
 /*
-write hello msg for host
-atomicly(using gcc intrinsics) & block(using umonitor)
-do not call not asyncly
+ write hello msg for host
+ atomicly(using gcc intrinsics) & block(using umonitor)
+ do not call not asyncly
 */
 
 #ifdef __USE_WAITPKG__
-void host_run_hello_handshake(host_handshake_t* out_ptr,void* addr) {
-//todo roll back hello_handshake_system if it's not support waitpkg ISA
+
+
+//quick doc hello handshake
+//return 1 OK
+//return 0 error
+//note.protocol bit 1 UMONITOR is regardless of client,it doesn't need to be symmetirc
+int host_run_hello_handshake(host_handshake_t* hh_out,void* addr) {
+  assert(hh_out != nullptr && addr != nullptr,"[HSH-ASSERT] wrong param, nullptr");
   if (is_support_umonitor()) {
-    LOG("rolling back system");
-    host_run_hello_handshake_system(out_ptr,addr);
-    return;
+    LOG("waitpkg is not supported in your running CPU,rolling back system function");
+    return host_run_hello_handshake_system(hh_out,addr);
   }
   host_handshake_t* dest = addr;
-  __atomic_store_n(&dest,&out_ptr,__ATOMIC_RELEASE);
+  assert(dest->hello_message == 1,"[HSH-ASSERT] incorrect hello message");  
+  __atomic_store_n(dest,hh_out,__ATOMIC_RELEASE);
   //wait client
-  char* flag = addr;
+  char* flag_addr = addr;
 waiting:  
   _umonitor(flag);
   _umwait(1,0);
-  if (__atomic_load_n(flag,__ATOMIC_ACQUIRE))
+  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
     goto waiting;
-  return;
+  char* ret_cap_mask_addr = addr + 1;
+  char ret_cap_mask = __atomic_load_n(ret_cap_mask_addr,__ATOMIC_ACQUIRE);
+  //ret_cap_mask  XXXXX_XX which "_" is what i want
+  //ret_cap_mask left shirt 5(8-3) bit
+  //we got _XX00000 which "_" is what i want
+  char tmp_cap_mask = (ret_cap_mask << 5);
+  //right shirt 7(8-1) bit
+  //we got 0000000_ which _ is what i want
+  char result_client_bit = (tmp_cap_mask >> 7);
+  if (result_client_bit) {
+    return 0;
+  }
+  return 1;
+}
+
+//quick doc dispatch handshake with client
+//return 1 for ok
+//return 0 for error ILLEGAL FUNC COUNT
+//rturn -1 for ILLEGAL SPACE COUNT
+//return -2 for RESERVED ERROR
+int host_run_dispatch_handshake(host_dispatch_handshake_t* hdh_out,void* addr) {
+  assert(hdh_out != nullptr && addr != nullptr,"[HDSH-ASSERT] wrong param, nullptr");
+  if (is_support_umonitor()) {
+    LOG("[WARN] waitpkg is not supported in your running CPU,rolling back system function");    
+    return host_run_dispatch_handshake_system(hdh_out,addr);
+  }
+  host_dispatch_handshake_t* dest = addr;
+  assert(dest->hello_message == 1,"[HDSH-ASSERT] incorrect hello message");
+  __atomic_store_n(dest,hh_out,__ATOMIC_RELEASE);
+  //wait client
+  char* flag_addr = addr;
+waiting:  
+  _umonitor(flag);
+  _umwait(1,0);
+  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
+    goto waiting;
+  char* flag_highaddr = addr + 1;
+  char error_code = __atomic_load_n(flag_highaddr,__ATOMIC_ACQUIRE);
+  if (error_code == 0x0) {
+    return 1;
+  }
+  else if (error_code == 0x1) {
+    return 0;
+  }
+  else if (error_code == 0x2) {
+    return -1;
+  }
+  else {
+    LOG("[WARN] receives an incorrect reserved code");
+    return -2;
+  }
 }
 #endif
 
 #ifdef __USE_WINDOWS__
 //provids host_run_*_system function
+//todo host_run_dispatch_in_threads_system
+
+//todo host_run_hello_handshake
+
+//todo host_run_dispatch_handshake
+int host_run_dispatch_handshake(host_dispatch_handshake_t* hdh_out,void* addr);
 #endif
 
-ifdef __USE_LINUX__
+#ifdef __USE_LINUX__
 //provids host_run_*_system function
+
+//todo host_run_hello_handshake
+
+//todo host_run_dispatch_handshake
+int host_run_dispatch_handshake(host_dispatch_handshake_t* hdh_out,void* addr);
+
+
+//todo host_run_dispatch_in_threads_system
+void host_run_dispatch_in_threads_system(host_dispatch_handshake_t* hdh_out,host_dispatch_t hd_out,void* addr) {
+  assert(hdh_out != nullptr && hd_out != nullptr && addr != nullptr,"[HDIS-ASSERT] wrong param, nullptr");
+  //todo sth else
+}
+void
 #endif
