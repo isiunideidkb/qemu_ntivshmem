@@ -41,19 +41,23 @@
 #define __USE_WINDOWS__
 #pragma message "using win32 api"
 #else
-#error "there's no windows sdk,making sure you're using mingw"
+#error "there's no windows sdk"
 #endif
 /* ===== cond1 ===== */
-#elif defined(__unix__)
+#elif defined(ENABLE_UNIX)
+#if __has_include(<unistd.h>) && defined(__unix__)
 #define __USE_UNIX__
 #pragma message "using unix api"
+#else
+#error "there's no POSIX headers"
+#endif
 #elif defined(ENABLE_LINUX)
 /* ===== cond2 ===== */
 #if __has_include(<linux/futex.h>) && defined(__gnu_linux__)
 #define __USE_LINUX__
 #pragma message "using linux api"
 #else
-#error "there's no futex headers,making sure you're using gcc"
+#error "there's no linux specific headers"
 #endif
 /* ===== cond2 ===== */
 #endif
