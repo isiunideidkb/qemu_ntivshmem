@@ -29,6 +29,9 @@
 #if defined(__USE_LINUX__)
 #undef __USE_LINUX__
 #endif
+#if defined(__USE_UNIX__)
+#undef __USE_UNIX__
+#endif
 
 //ENABLE_* manually selected macro,must be platform suited(throw error if it's not matched by given target config)
 //note: WAITPKG is optionally,but can not appeared as single option,paralleled with system api
@@ -41,11 +44,14 @@
 #error "there's no windows sdk,making sure you're using mingw"
 #endif
 /* ===== cond1 ===== */
-#elif defined(ENABLE_LINUX) //system api
+#elif defined(__unix__)
+#define __USE_UNIX__
+#pragma message "using unix api"
+#elif defined(ENABLE_LINUX)
 /* ===== cond2 ===== */
 #if __has_include(<linux/futex.h>) && defined(__gnu_linux__)
 #define __USE_LINUX__
-#pragma message "using linux futex api"
+#pragma message "using linux api"
 #else
 #error "there's no futex headers,making sure you're using gcc"
 #endif
@@ -71,8 +77,11 @@
 #define __USE_WAITPKG__
 #endif
 //note : waitpkg is paralled with system specific api
-#if __has_include(<linux/futex.h>) && defined(__gnu_linux__)
-#pragma message "using linux futex api"
+#if defined(__unix__)
+#pragma message "using unix api"
+#define __USE_UNIX__
+#elif __has_include(<linux/futex.h>) && defined(__gnu_linux__)
+#pragma message "using linux api"
 #define __USE_LINUX__
 #elif __has_include(<windows.h>) && defined(__MINGW32__)
 #pragma message "using win32 api"
@@ -93,9 +102,9 @@
 #include <windows.h>
 #endif
 #ifdef __USE_LINUX__
+#endif
+#ifdef __USE_UNIX__
 #include <unistd.h>
-#include <sys/syscall.h>
-#include <linux/futex.h>
 #endif
 #ifdef __USE_WAITPKG__
 #endif
@@ -424,7 +433,7 @@ startup:
 #error "do not compile on windows SDK env"
 #endif
 
-#ifdef __USE_LINUX__
+#ifdef __USE_UNIX__
 //provids host_run_*_system function
 
 
