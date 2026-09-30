@@ -8,7 +8,7 @@ introduction to this Project:
   this project aimed to implement universal,portable,concise RPC protocol through qemu-ivshmem-plain,zero-copied as much as possible
 
 goal of this project:
-  implemnt OpenGL 3D accelaration of WinXP/OldUnix,with GLX/WGL/EGL extension
+  implement OpenGL 3D accelaration of WinXP/OldUnix,with GLX/WGL/EGL extension
   clipboard sharing
 
 for further internal information ,email me
