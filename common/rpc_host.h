@@ -3,6 +3,13 @@
   clang-format --style=LLVM
   common rpc protocol for host
   use nullptr instead of NULL
+
+  todo list:
+  1. hello_handshake host did not clean(zero-filled back) the space
+  2. dispatch_handshake host did not clean(zero-filled back) the space
+  3. complete system specific routines
+  4. improves this bullshit "robustness"
+  5. fix identifier errors,UB
 */
 
 /* ===== PLATFORM CHECK ===== */
@@ -131,7 +138,7 @@
 typedef void(*ssw_t)(void* addr)
 //quickdoc: system_specific_waiter used by host_run_*_system routines,if this variable is not null,system_specific_waiter is prefered
 //this waiter receives a addr,listens the modification in 1byte region
-//this variable is private linkage(static)
+//this variable is private linkage(i.e. static)
 static ssw_t system_specific_waiter = nullptr;
 void set_system_specific_waiter(void* target) {
   system_specific_waiter = (ssw_t)(target);
