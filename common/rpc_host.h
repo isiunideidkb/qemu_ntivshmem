@@ -336,16 +336,14 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
 #ifdef __USE_WAITPKG__
 
 
-//quick doc hello handshake alternative entry
+//todo: only add umonitor instruction cpuid check on alternative entry for rolling back
+
+//quick doc hello handshake, alternative explicit entry
 //return 1 OK
 //return 0 error
 //note.protocol bit 1 UMONITOR is regardless of client,it doesn't need to be symmetirc
 int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
   assert(hh_out != nullptr && addr != nullptr,"[HSH-ASSERT] wrong param, nullptr");
-  if (is_support_umonitor()) {
-    LOG("waitpkg is not supported in your running CPU,rolling back system function");
-    return host_run_hello_handshake_system(hh_out,addr);
-  }
   host_handshake_t* dest = addr;
   assert(dest->hello_message == 1,"[HSH-ASSERT] incorrect hello message");  
   __atomic_store_n(dest,hh_out,__ATOMIC_RELEASE);
@@ -365,35 +363,35 @@ waiting:
   //right shirt 7(8-1) bit
   //we got 0000000_ which _ is what i want
   char result_client_bit = (tmp_cap_mask >> 7);
+  //clean
+  host_handshake_t _clean_example = {0};
+  _clean_example
   if (result_client_bit) {
     return 0;
   }
   return 1;
 }
 
-//quick doc dispatch handshake with client alternative entry
+//quick doc dispatch handshake with client, alternative explicit entry
 //return 1 for ok
 //return 0 for error ILLEGAL FUNC COUNT
 //rturn -1 for ILLEGAL SPACE COUNT
 //return -2 for RESERVED ERROR
 int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void* addr) {
   assert(hdh_out != nullptr && addr != nullptr,"[HDSH-ASSERT] wrong param, nullptr");
-  if (is_support_umonitor()) {
-    LOG("[WARN] waitpkg is not supported in your running CPU,rolling back system function");    
-    return host_run_dispatch_handshake_system(hdh_out,addr);
-  }
   host_dispatch_handshake_t* dest = addr;
   assert(dest->hello_message == 1,"[HDSH-ASSERT] incorrect hello message");
-  __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
   //wait client
-  char* flag_addr = addr;
+  __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
 waiting:  
   _umonitor(flag);
   _umwait(1,0);
   if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
     goto waiting;
-  char* flag_highaddr = addr + 1;
   char error_code = __atomic_load_n(flag_highaddr,__ATOMIC_ACQUIRE);
+  //clean aftar all memory accessing
+  host_dispatch_handshake_t _clean_example = {0};
+  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
   if (error_code == 0x0) {
     return 1;
   }
@@ -511,3 +509,6 @@ void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
   return;
 }
 #endif
+
+
+//todo auto route function ,prefer waitpkg
