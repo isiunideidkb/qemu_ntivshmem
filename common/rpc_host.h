@@ -12,6 +12,7 @@
   5. fix identifier errors,UB
   6. log&assert unificate
   7. atomic builtin signfication check : ok
+  8. add some host_dispatch_function table routines
 */
 
 /* ===== PLATFORM CHECK ===== */
@@ -197,22 +198,23 @@ typedef struct [[gnu::packed]] _host_dispatch_t {
 //quickdoc: this requires  hello handshake init, init a dispatch handshake structure, starge 2
 void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_handshake_t* hht_out,
                                  unsigned short psplit_number,unsigned short pbytes_per_split) {
-  assert(hdh_out != nullptr && hht_out != nullptr,"[DISSHAKE-ASSERT] wrong param, nullptr");
+  assert(hdh_out != nullptr && hht_out != nullptr,"[ASSERT] wrong param, nullptr");
   unsigned int* length_ptr = (unsigned int*)(&(hht_out->_1_length));
-  assert(psplit_number * pbytes_per_split == *length_ptr,"[DISSHAKE-ASSERT] wrong param, incorrect length");
-  assert(psplit_number >= 1,"[DISSHAKE-ASSERT] wrong param")
-  assert ((pbytes_per_split) > 0 && ((n & (n-1)) == 0),"[DISSHAKE-ASSERT] wrong param, incorrect bytes_per_split")
+  assert(psplit_number * pbytes_per_split == *length_ptr,"[ASSERT] wrong param, incorrect length");
+  assert(psplit_number >= 1,"[ASSERT] wrong param")
+  assert ((pbytes_per_split) > 0 && ((n & (n-1)) == 0),"[ASSERT] wrong param, incorrect bytes_per_split")
   memset(hdh_ptr,0,sizeof(host_dispatch_handshake_t));
   hdh_ptr->flag_lowaddr = 1;
   hdh_ptr->flag_highaddr = 0;
   hdh_ptr->split_number = psplit_number;
   hdh_ptr->split_bytes_per_split = pbytes_per_split
+  return;
 }
 
 //quickdoc: this requires dispatch handshake init,init a host_dispatch_t(i.e. represents concrete dispatch functions type)
 void host_dispatch_init(host_dispatch_t* hdt_out, host_dispatch_handshake_t* hdh_out,
                        host_handshake_t* hht_out, void* addr) {
-  assert(hdt_out != nullptr && hdh_out != nullptr && hht_out != nullptr && addr != nullptr,"[DIS-ASSERT] wrong param, nullptr");
+  assert(hdt_out != nullptr && hdh_out != nullptr && hht_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   unsigned int* length_ptr = (unsigned int*)(&(hht_out->_1_length));
   memset(hdt_out,0,sizeof(host_dispatch_t));
   hdt_out->total_length = *length_ptr;
@@ -224,9 +226,9 @@ void host_dispatch_init(host_dispatch_t* hdt_out, host_dispatch_handshake_t* hdh
 
 //quickdoc: clean the resource created by append_node, WARNING THIS FUNCTION DO NOT CLEAN hdt_out,the ptr's lifetime owned by caller
 void host_dispatch_destory_node(host_dispatch_t* hdt_out) {
-  assert(hdt_out != nullptr,"[DISDES-ASSERT] wrong param, nullptr");
+  assert(hdt_out != nullptr,"[ASSERT] wrong param, nullptr");
   if(hdt_out->head == nullptr) {
-    LOG("[DESTORY] invalid HEAD");
+    LOG("[WARN] invalid HEAD");
     return;
   }
   struct __disp_list* cur_node = hdt_out->head;
@@ -240,7 +242,7 @@ void host_dispatch_destory_node(host_dispatch_t* hdt_out) {
     free(tmp_prev_node);
   }
   hdt_out->head = nullptr;
-  assert(tmp_prev_node != nullptr,"[DESTORY-ASSERT] tmp_prev_node MUST-NOT be nullptr");
+  assert(tmp_prev_node != nullptr,"[ASSERT] tmp_prev_node MUST-NOT be nullptr");
   return;
 }
 
@@ -252,17 +254,18 @@ if dispatch_type == HUGE_SHM
   assert that the len % <bytes per split> == 0
 
 
-quickdoc: append node,which node represents single function,linear layout,represent as linked list  
+quickdoc: append node,which node represents single function,linear layout,represent as linked list
+unique dispatch function add entry
 */
 void host_dispatch_append_node(host_dispatch_t* hdt_out, void* addr,
                                host_dispatch_handshake_t* hdh_out, dispatch_func_t df,
 			       unsigned int len,dispatch_type dt) {
   assert(hdt_out != nullptr && addr != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
-  assert(len != 0,"[DISAPP-ASSERT] wrong param, incorrect len");
+  assert(len != 0,"[ASSERT] wrong param, incorrect len");
   if (dt == SHM)
-    assert(len == hdh_out->bytes_per_split,"[DISAPP-ASSERT] wrong param, incorrect len");
-  if (dt == HUGE_SHM)
-    assert((len % hdh_out->bytes_per_split == 0),"[DISAPP-ASSERT] wrong param, incorrect len");
+    assert(len == hdh_out->bytes_per_split,"[ASSERT] wrong param, incorrect len");
+  if (dt == HUGE_SHM | dt == FUNC)
+    assert((len % hdh_out->bytes_per_split == 0),"[ASSERT] wrong param, incorrect len");
   struct __disp_list* node = malloc(sizeof(struct __disp_list));
   node->length = len;
   node->base_addr = addr;
@@ -280,17 +283,19 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out, void* addr,
     hdt_out->end = node; 
   }
   else {
-    assert(hdt_out->end != nullptr,"[DISAPP-ASSERT] invalid field");
+    assert(hdt_out->end != nullptr,"[ASSERT] invalid field");
     hdt_out->end->next = node;
     hdt_out->end = node;
   }
+  host_check_dispatches(hdt_out);
+  return;
 }
 
 /*
   ret: is_error,the details will print on the stdio
 */
 bool host_check_dispatches(host_dispatch_t* hdt){
-  assert(hdt != nullptr,"[DISCHECK] wrong param, nullptr");
+  assert(hdt != nullptr,"[ASSERT] wrong param, nullptr");
   bool stat = true; //only write false,in the following context
   unsigned int initial_length = 0;
   struct __disp_list* cur_node = hdt->head;
@@ -303,7 +308,8 @@ bool host_check_dispatches(host_dispatch_t* hdt){
       LOG("[CHECK] invalid fields"); 
       stat = false;
     }
-    cur_node += length;
+    
+    initial_length += cur_node->length;
     cur_node = cur_node->next;
   }
   if(initial_length != hdt->total_length) {
@@ -350,9 +356,9 @@ int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
     LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
     return host_run_hello_handshake_system(hh_out,addr);
   }
-  assert(hh_out != nullptr && addr != nullptr,"[HSH-ASSERT] wrong param, nullptr");
+  assert(hh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   host_handshake_t* dest = addr;
-  assert(dest->hello_message == 1,"[HSH-ASSERT] incorrect hello message");  
+  assert(dest->hello_message == 1,"[ASSERT] incorrect hello message");  
   __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
   //wait client
   char* flag_addr = addr;
@@ -385,13 +391,13 @@ waiting:
 //rturn -1 for ILLEGAL SPACE COUNT
 //return -2 for RESERVED ERROR
 int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void* addr) {
-  assert(hdh_out != nullptr && addr != nullptr,"[HDSH-ASSERT] wrong param, nullptr");
+  assert(hdh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   if(is_support_umonitor()) {
     LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
     return host_run_dispatch_handshake_system(hdh_out,addr);
   }
   host_dispatch_handshake_t* dest = addr;
-  assert(dest->hello_message == 1,"[HDSH-ASSERT] incorrect hello message");
+  assert(dest->hello_message == 1,"[ASSERT] incorrect hello message");
   //wait client
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
 waiting:  
@@ -435,13 +441,13 @@ startup:
   if(__atomic_load_n(flag,__ATOMIC_ACQUIRE))
     goto startup;
   //if client pull down
-  LOG("[INFO] host received a request");
+  LOG("[INFO] received a request");
   if(node->d_t == FUNC) {
     assert(node->dispatch_function != nullptr,"[ASSERT] incorrect dispatch function, nullptr");
     (node->dispatch_function)(node);
   }
   else {
-    LOG("[INFO] find a empty SHM");
+    LOG("[INFO] find an empty SHM");
     //pass if type is SHM/HUGE_SHM
   }
   goto startup;
@@ -459,7 +465,7 @@ startup:
 
 //todo add log
 int host_run_hello_handshake_system(host_handshake_t hh_out,void* addr) {
-  assert(hh_out!= nullptr && addr != nullptr,"[ASSERT] wonrg param,nullptr");
+  assert(hh_out!= nullptr && addr != nullptr,"[ASSERT] wonrgwrong param,nullptr");
   if(system_specific_waiter) {
     goto hello_handshake;
   }
@@ -479,8 +485,11 @@ hello_handshake_startup:
   __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
   char tmp_cap_mask = (cap_mask << 5);
   char client_bit = (tmp_cap_mask >> 7);
-  if(client_bit)
+  if(client_bit) {
+    LOG("[WARN] received an error");
     return 0;
+  }
+    
   return 1;
 }
 //todo add log
@@ -490,7 +499,7 @@ int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* 
   if(system_specific_waiter) {
     goto dispatch_handshake;
   }
-  else { assert(false,"not supported yet"); } //no rerurn exit directly
+  else { assert(false,"[ASSERT] not supported yet"); } //no rerurn exit directly
 dispatch_handshake:
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
   char* flag_addr = addr;
@@ -508,8 +517,10 @@ dispatch_handshake_startup:
     return 0;
   else if(error_code == 0x2)
     return -1;
-  else
+  else {
+    LOG("[WARN] received a reserved error code");
     return -2;
+  }
 }
 
 
@@ -524,7 +535,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
     return nullptr;
   }
 #endif
-  assert(node != nullptr,"[ASSERT]wrong param,nullptr")
+  assert(node != nullptr,"[ASSERT] wrong param,nullptr")
   char* flag = node->base_addr;
   char* function_code = (node->base_addr) + 1;
   __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);  
