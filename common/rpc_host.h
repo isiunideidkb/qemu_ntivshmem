@@ -11,12 +11,12 @@
   4. improves this bullshit "robustness"
   5. fix identifier errors,UB
   6. log&assert unificate
-  7. atomic builtin signfication check
+  7. atomic builtin signfication check : ok
 */
 
 /* ===== PLATFORM CHECK ===== */
 #pragma once
-#ifndef __GNU__
+#ifndef __GNUC__
 #error "wrong platform"
 #endif
 
@@ -173,7 +173,7 @@ enum dispatch_type : char {
   SHM = (char)0x0,
   HUGE_SHM = (char)0x1,
   FUNC = (char)0x2
-}
+};
 
 typedef void(*dispatch_func_t)(struct __disp_list* self);
 //quickdoc: this is private struct,stores every function info node in RPC protocol,in stage 3
@@ -186,8 +186,8 @@ struct [[gnu::packed]] __disp_list {
 }
 //quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
 typedef struct [[gnu::packed]] _host_dispatch_t {
-  struct __disp_list head;
-  struct __disp_list end; //works only head >= 1,
+  struct __disp_list* head;
+  struct __disp_list* end; //works only head >= 1,
   unsigned int total_length;
   void* start_addr;
 } host_dispatch_t;
@@ -357,7 +357,7 @@ int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
   //wait client
   char* flag_addr = addr;
 waiting:  
-  _umonitor(flag);
+  _umonitor(flag_addr);
   _umwait(1,0);
   if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
     goto waiting;
