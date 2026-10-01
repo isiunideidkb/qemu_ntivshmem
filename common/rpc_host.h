@@ -187,7 +187,7 @@ struct [[gnu::packed]] __disp_list {
 //quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
 typedef struct [[gnu::packed]] _host_dispatch_t {
   struct __disp_list* head;
-  struct __disp_list* end; //works only head >= 1,
+  struct __disp_list* end; //works only head >= 1 //todo remove this field
   unsigned int total_length;
   void* start_addr;
 } host_dispatch_t;
