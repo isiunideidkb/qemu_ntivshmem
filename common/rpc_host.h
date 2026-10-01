@@ -5,11 +5,13 @@
   use nullptr instead of NULL
 
   todo list:
-  1. hello_handshake host did not clean(zero-filled back) the space
-  2. dispatch_handshake host did not clean(zero-filled back) the space
-  3. complete system specific routines
+  1. hello_handshake host did not clean(zero-filled back) the space : ok
+  2. dispatch_handshake host did not clean(zero-filled back) the space : ok
+  3. complete system specific routines : ok
   4. improves this bullshit "robustness"
   5. fix identifier errors,UB
+  6. log&assert unificate
+  7. atomic builtin signfication check
 */
 
 /* ===== PLATFORM CHECK ===== */
@@ -24,6 +26,7 @@
 
 //todo atomic instrincs check: using __has_attrubute(target) or related builtin
 //see GCC documentation for details
+
 
 /* ===== PLATFORM SWITCH ===== */
 //clean predefs
@@ -343,10 +346,14 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
 //return 0 error
 //note.protocol bit 1 UMONITOR is regardless of client,it doesn't need to be symmetirc
 int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
+  if (is_support_umonitor()) {
+    LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
+    return host_run_hello_handshake_system(hh_out,addr);
+  }
   assert(hh_out != nullptr && addr != nullptr,"[HSH-ASSERT] wrong param, nullptr");
   host_handshake_t* dest = addr;
   assert(dest->hello_message == 1,"[HSH-ASSERT] incorrect hello message");  
-  __atomic_store_n(dest,hh_out,__ATOMIC_RELEASE);
+  __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
   //wait client
   char* flag_addr = addr;
 waiting:  
@@ -357,15 +364,15 @@ waiting:
   char* ret_cap_mask_addr = addr + 1;
   char ret_cap_mask = __atomic_load_n(ret_cap_mask_addr,__ATOMIC_ACQUIRE);
   //ret_cap_mask  XXXXX_XX which "_" is what i want
-  //ret_cap_mask left shirt 5(8-3) bit
+  //ret_cap_mask left shift 5(8-3) bit
   //we got _XX00000 which "_" is what i want
   char tmp_cap_mask = (ret_cap_mask << 5);
-  //right shirt 7(8-1) bit
+  //right shift 7(8-1) bit
   //we got 0000000_ which _ is what i want
   char result_client_bit = (tmp_cap_mask >> 7);
   //clean
   host_handshake_t _clean_example = {0};
-  _clean_example
+  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
   if (result_client_bit) {
     return 0;
   }
@@ -379,6 +386,10 @@ waiting:
 //return -2 for RESERVED ERROR
 int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void* addr) {
   assert(hdh_out != nullptr && addr != nullptr,"[HDSH-ASSERT] wrong param, nullptr");
+  if(is_support_umonitor()) {
+    LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
+    return host_run_dispatch_handshake_system(hdh_out,addr);
+  }
   host_dispatch_handshake_t* dest = addr;
   assert(dest->hello_message == 1,"[HDSH-ASSERT] incorrect hello message");
   //wait client
@@ -446,13 +457,63 @@ startup:
 //provids host_run_*_system function
 
 
-//todo host_run_hello_handshake_system umonitor check then forward to it
+//todo add log
+int host_run_hello_handshake_system(host_handshake_t hh_out,void* addr) {
+  assert(hh_out!= nullptr && addr != nullptr,"[ASSERT] wonrg param,nullptr");
+  if(system_specific_waiter) {
+    goto hello_handshake;
+  }
+  else { assert(false,"not supported yet"); } //no rerurn exit directly
+hello_handshake:  
+  char* flag_addr = addr;
+  char* ret_cap_mask_addr = addr + 1;
+  struct host_handshake_t* dest = addr;
+  __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
+hello_handshake_startup:
+  system_speicific_waiter(flag_addr);
+  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE)) {
+    goto hello_handshake_startup;
+  }
+  char cap_mask = __atomic_load_n(ret_cap_mask_addr,__ATOMIC_ACQUIRE);
+  host_handshake_t _clean_example = {0};
+  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
+  char tmp_cap_mask = (cap_mask << 5);
+  char client_bit = (tmp_cap_mask >> 7);
+  if(client_bit)
+    return 0;
+  return 1;
+}
+//todo add log
+int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr) {
+  assert(hdh_out != nullptr && addr != nullptr);
+  host_dispatch_handshake_t* dest = addr;
+  if(system_specific_waiter) {
+    goto dispatch_handshake;
+  }
+  else { assert(false,"not supported yet"); } //no rerurn exit directly
+dispatch_handshake:
+  __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
+  char* flag_addr = addr;
+  char* errcode_addr = addr + 1;
+dispatch_handshake_startup:
+  system_specific_waiter(flag_addr);
+  if(__atomic_load_n(flag_addr,__ATOMIC_RELEASE))
+    goto dispatch_handshake_startup;
+  char error_code = __atomic_load_n(errcode_addr);
+  host_dispatch_handshake_t _clean_exmple = {0};
+  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
+  if(error_code == 0x0)
+    return 1;
+  else if(error_code == 0x1)
+    return 0;
+  else if(error_code == 0x2)
+    return -1;
+  else
+    return -2;
+}
 
-//todo host_run_dispatch_handshake_system umonitor check then forward to it
-int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr);
 
 
-//todo host_run_dispatch_in_threads_system
 //quickdoc: private function,be used by host_run_dispatch_in_threads_system
 PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
 //note: actually we need no pthread_exit & return,this thread is expected as never_return
