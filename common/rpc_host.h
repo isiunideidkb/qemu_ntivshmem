@@ -8,11 +8,11 @@
   1. hello_handshake host did not clean(zero-filled back) the space : ok
   2. dispatch_handshake host did not clean(zero-filled back) the space : ok
   3. complete system specific routines : ok
-  4. improves this bullshit "robustness"
+  4. improves this bullshit "robustness" : 
   5. fix identifier errors,UB
-  6. log&assert unificate
+  6. log&assert unificate : ok
   7. atomic builtin signfication check : ok
-  8. add some host_dispatch_function table routines
+  8. add some host_dispatch_function table routines : ok
 */
 
 /* ===== PLATFORM CHECK ===== */
@@ -584,3 +584,19 @@ void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
 
 
 //todo auto route function ,prefer waitpkg
+int host_run_hello_handshake(host_handshake_t* hh_out,void * addr) {
+#ifdef __USE_WAITPKG__   //to avoid umonitor is non compiled
+  if(is_support_umonitor())
+    return host_run_hello_handshake_umonitor(hh_out,addr);
+#endif
+  return host_run_hello_handshake_system(hh_out,addr);
+}
+int host_run_dispatch_handshake(host_dispatch_handshake_t* hdh_out,void* addr) {
+#ifdef __USE_WAITPKG__
+  if(is_supoprt_umonitor()) {
+    return host_run_dispatch_handshake_umonitor(hdh_out,addr);
+  }
+#endif
+  return host_run_dispatch_handshake_umonitor(hdh_out,addr);
+}
+
