@@ -257,7 +257,7 @@ if dispatch_type == HUGE_SHM
 quickdoc: append node,which node represents single function,linear layout,represent as linked list
 unique dispatch function add entry
 */
-void host_dispatch_append_node(host_dispatch_t* hdt_out, void* addr,
+void host_dispatch_append_node(host_dispatch_t* hdt_out,
                                host_dispatch_handshake_t* hdh_out, dispatch_func_t df,
 			       unsigned int len,dispatch_type dt) {
   assert(hdt_out != nullptr && addr != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
@@ -268,7 +268,16 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out, void* addr,
     assert((len % hdh_out->bytes_per_split == 0),"[ASSERT] wrong param, incorrect len");
   struct __disp_list* node = malloc(sizeof(struct __disp_list));
   node->length = len;
-  node->base_addr = addr;
+  unsigned int initial_addr_offset = 0; //atomaticly calculates the offset
+  struct __disp_list* cur_node = hdt_out->head;
+  while(true) {
+    if(cur_node == nullptr) {
+      break;
+    }
+    initial_addr_offset += cur_node->length;
+    cur_node = cur_node->next;
+  }
+  node->base_addr = (void*)(hdt_out->start_addr + initial_addr_offset)
   node->d_t = dt;
   node->next = nullptr;
   if(dt == SHM || dt == HUGE_SHM) {
@@ -469,7 +478,7 @@ int host_run_hello_handshake_system(host_handshake_t hh_out,void* addr) {
   if(system_specific_waiter) {
     goto hello_handshake;
   }
-  else { assert(false,"not supported yet"); } //no rerurn exit directly
+  else { assert(false,"[ASSERT] not supported yet"); } //no rerurn exit directly
 hello_handshake:  
   char* flag_addr = addr;
   char* ret_cap_mask_addr = addr + 1;
@@ -494,12 +503,12 @@ hello_handshake_startup:
 }
 //todo add log
 int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr) {
-  assert(hdh_out != nullptr && addr != nullptr);
+  assert(hdh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   host_dispatch_handshake_t* dest = addr;
   if(system_specific_waiter) {
     goto dispatch_handshake;
   }
-  else { assert(false,"[ASSERT] not supported yet"); } //no rerurn exit directly
+  else { assert(false,"[ASSERT] HAVE NOT IMPLEMENTED YET"); } //no rerurn exit directly
 dispatch_handshake:
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
   char* flag_addr = addr;
@@ -544,7 +553,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
     goto system_specific;
   }
   else {
-    ASSERT(false,"[BUG]" __LINE__ __FILE__ "HAVE NOT IMPLEMENTED YET");
+    ASSERT(false,"[ASSERT]" __LINE__ __FILE__ "HAVE NOT IMPLEMENTED YET");
   }
   
   return nullptr;
