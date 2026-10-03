@@ -73,6 +73,7 @@
 /* ===== cond2 ===== */
 #endif
 
+//note : !! ENABLE_WAITPKG does not mean is_support_umonitor == true, in the same vein is_support_umonitor == true does not mean WAIT_PKG routines is not empty!
 #if defined(ENABLE_WAITPKG) //note : waitpkg is paralled with system specific api
 /* ===== cond3 ===== */
 #if __has_builtin(__builtin_ia32_umwait) && __has_builtin(__builtin_ia32_umonitor)
@@ -139,7 +140,7 @@
 
 
 //1byte!
-typedef void(*ssw_t)(void* addr)
+typedef void(*ssw_t)(void* addr);
 //quickdoc: system_specific_waiter used by host_run_*_system routines,if this variable is not null,system_specific_waiter is prefered
 //this waiter receives a addr,listens the modification in 1byte region
 //this variable is private linkage(i.e. static)
@@ -184,7 +185,7 @@ struct [[gnu::packed]] __disp_list {
   void* base_addr; //include flag
   dispatch_type d_t;
   struct __disp_list* next; //represent as linked list which node represents single function,linear layout,
-}
+};
 //quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
 typedef struct [[gnu::packed]] _host_dispatch_t {
   struct __disp_list* head;
@@ -202,12 +203,12 @@ void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_hands
   unsigned int* length_ptr = (unsigned int*)(&(hht_out->_1_length));
   assert(psplit_number * pbytes_per_split == *length_ptr,"[ASSERT] wrong param, incorrect length");
   assert(psplit_number >= 1,"[ASSERT] wrong param")
-  assert ((pbytes_per_split) > 0 && ((n & (n-1)) == 0),"[ASSERT] wrong param, incorrect bytes_per_split")
-  memset(hdh_ptr,0,sizeof(host_dispatch_handshake_t));
-  hdh_ptr->flag_lowaddr = 1;
-  hdh_ptr->flag_highaddr = 0;
-  hdh_ptr->split_number = psplit_number;
-  hdh_ptr->split_bytes_per_split = pbytes_per_split
+  assert ((pbytes_per_split) > 0 && ((pbytes_per_split & (pbytes_per_split - 1)) == 0),"[ASSERT] wrong param, incorrect bytes_per_split")
+  memset(hdh_out,0,sizeof(host_dispatch_handshake_t));
+  hdh_out->flag_lowaddr = 1;
+  hdh_out->flag_highaddr = 0;
+  hdh_out->split_number = psplit_number;
+  hdh_out->bytes_per_split = pbytes_per_split
   return;
 }
 
@@ -242,7 +243,6 @@ void host_dispatch_destory_node(host_dispatch_t* hdt_out) {
     free(tmp_prev_node);
   }
   hdt_out->head = nullptr;
-  assert(tmp_prev_node != nullptr,"[ASSERT] tmp_prev_node MUST-NOT be nullptr");
   return;
 }
 
@@ -260,11 +260,11 @@ unique dispatch function add entry
 void host_dispatch_append_node(host_dispatch_t* hdt_out,
                                host_dispatch_handshake_t* hdh_out, dispatch_func_t df,
 			       unsigned int len,dispatch_type dt) {
-  assert(hdt_out != nullptr && addr != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
+  assert(hdt_out != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
   assert(len != 0,"[ASSERT] wrong param, incorrect len");
   if (dt == SHM)
     assert(len == hdh_out->bytes_per_split,"[ASSERT] wrong param, incorrect len");
-  if (dt == HUGE_SHM | dt == FUNC)
+  if (dt == HUGE_SHM || dt == FUNC)
     assert((len % hdh_out->bytes_per_split == 0),"[ASSERT] wrong param, incorrect len");
   struct __disp_list* node = malloc(sizeof(struct __disp_list));
   node->length = len;
@@ -277,7 +277,7 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
     initial_addr_offset += cur_node->length;
     cur_node = cur_node->next;
   }
-  node->base_addr = (void*)(hdt_out->start_addr + initial_addr_offset)
+  node->base_addr = (void*)(hdt_out->start_addr + initial_addr_offset);
   node->d_t = dt;
   node->next = nullptr;
   if(dt == SHM || dt == HUGE_SHM) {
@@ -287,7 +287,7 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
     node->dispatch_function = df;
   }
 
-  if(hdt_out->head == nullptr & hdt_out->end == nullptr) {
+  if(hdt_out->head == nullptr && hdt_out->end == nullptr) {
     hdt_out->head = node;
     hdt_out->end = node; 
   }
@@ -332,11 +332,11 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
   memset(out_ptr,0,sizeof(host_handshake_t));
   out_ptr->hello_message = 1;
   if(is_phys && (!is_umonitor))
-    out_ptr->mask = 00000010'00000001;
+    out_ptr->cap_mask = 00000010'00000001;
   if((!is_phys) && is_umonitor)
-    out_ptr->mask = 00000001'00000001;
+    out_ptr->cap_mask = 00000001'00000001;
   if(is_phys && is_umonitor)
-    out_ptr->mask = 00000011'00000001;
+    out_ptr->cap_mask = 00000011'00000001;
   unsigned int* length_ptr = (unsigned int*)(&(out_ptr->_1_length));
   *length_ptr = length;
 }
@@ -347,21 +347,21 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
 
 /*
  write hello msg for host
- atomicly(using gcc intrinsics) & block(using umonitor)
+ atomicly(using gcc intrinsics) & lock(using umonitor)
  do not call not asyncly
 */
 
-#ifdef __USE_WAITPKG__
 
-
-//todo: only add umonitor instruction cpuid check on alternative entry for rolling back
+//todo: only umonitor checks cpuid  on alternative entry for rolling back
 
 //quick doc hello handshake, alternative explicit entry
 //return 1 OK
 //return 0 error
+//return -1 unimplemented
 //note.protocol bit 1 UMONITOR is regardless of client,it doesn't need to be symmetirc
 int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
-  if (is_support_umonitor()) {
+#ifdef __USE_WAITPKG__
+  if (!is_support_umonitor()) {
     LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
     return host_run_hello_handshake_system(hh_out,addr);
   }
@@ -392,6 +392,9 @@ waiting:
     return 0;
   }
   return 1;
+#else
+  return -1;
+#endif
 }
 
 //quick doc dispatch handshake with client, alternative explicit entry
@@ -399,22 +402,26 @@ waiting:
 //return 0 for error ILLEGAL FUNC COUNT
 //rturn -1 for ILLEGAL SPACE COUNT
 //return -2 for RESERVED ERROR
+//return -3 for unimplemented
 int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void* addr) {
+#ifdef __USE_WAITPKG__
   assert(hdh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
-  if(is_support_umonitor()) {
+  if(!is_support_umonitor()) {
     LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
     return host_run_dispatch_handshake_system(hdh_out,addr);
   }
   host_dispatch_handshake_t* dest = addr;
+  char* flag_addr = addr;
+  char* error_code_addr = addr + 1;
   assert(dest->hello_message == 1,"[ASSERT] incorrect hello message");
   //wait client
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
 waiting:  
-  _umonitor(flag);
+  _umonitor(flag_addr);
   _umwait(1,0);
   if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
     goto waiting;
-  char error_code = __atomic_load_n(flag_highaddr,__ATOMIC_ACQUIRE);
+  char error_code = __atomic_load_n(error_code_addr,__ATOMIC_ACQUIRE);
   //clean aftar all memory accessing
   host_dispatch_handshake_t _clean_example = {0};
   __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
@@ -431,10 +438,14 @@ waiting:
     LOG("[WARN] receives an incorrect reserved code");
     return -2;
   }
+#else
+  return -3;
+#endif
 }
 
 //quickdoc: private function,alternative function of host_internal_dispatch_runner_system,this is not entry,see host_internal_dispatch_runner_system
 PRIVATE_FUNC void* host_internal_dispatch_runner_system_umonitor(void* _param) {
+#ifdef __USE_WAITPKG__
 //note: actually we need no pthread_exit & return,this thread is expected as never_return
   struct __disp_list* node = _param;
   assert(node != nullptr,"[ASSERT] wrong param, nullptr");
@@ -461,19 +472,18 @@ startup:
   }
   goto startup;
   return nullptr;
-}
+#else
+  return nullptr;
 #endif
+}
 
 #ifdef __USE_WINDOWS__
 #error "do not compile on windows SDK env"
 #endif
 
-#ifdef __USE_UNIX__
-//provids host_run_*_system function
-
-
 //todo add log
-int host_run_hello_handshake_system(host_handshake_t hh_out,void* addr) {
+int host_run_hello_handshake_system(host_handshake_t* hh_out,void* addr) {
+#ifdef __USE_UNIX__
   assert(hh_out!= nullptr && addr != nullptr,"[ASSERT] wonrgwrong param,nullptr");
   if(system_specific_waiter) {
     goto hello_handshake;
@@ -485,7 +495,7 @@ hello_handshake:
   struct host_handshake_t* dest = addr;
   __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
 hello_handshake_startup:
-  system_speicific_waiter(flag_addr);
+  system_specific_waiter(flag_addr);
   if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE)) {
     goto hello_handshake_startup;
   }
@@ -500,9 +510,13 @@ hello_handshake_startup:
   }
     
   return 1;
+#else
+  return -1;
+#endif
 }
-//todo add log
+
 int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr) {
+#ifdef __USE_UNIX__
   assert(hdh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   host_dispatch_handshake_t* dest = addr;
   if(system_specific_waiter) {
@@ -518,7 +532,7 @@ dispatch_handshake_startup:
   if(__atomic_load_n(flag_addr,__ATOMIC_RELEASE))
     goto dispatch_handshake_startup;
   char error_code = __atomic_load_n(errcode_addr);
-  host_dispatch_handshake_t _clean_exmple = {0};
+  host_dispatch_handshake_t _clean_example = {0};
   __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
   if(error_code == 0x0)
     return 1;
@@ -530,18 +544,23 @@ dispatch_handshake_startup:
     LOG("[WARN] received a reserved error code");
     return -2;
   }
+#else
+  return -3;
+#endif  
 }
 
 
 
 //quickdoc: private function,be used by host_run_dispatch_in_threads_system
+//todo system specific
 PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
 //note: actually we need no pthread_exit & return,this thread is expected as never_return
   struct __disp_list* node = _param;
-#ifdef __USE_WAITPKG__
+#ifdef __USE_WAITPKG__ //except empty calling
   if(is_support_umonitor()) {
+    LOG("[INOF] prefer waitpkg,switching to waitpkg routine");
     host_internal_dispatch_runner_system_umonitor(_param);
-    return nullptr;
+    return nullptr; //no-return ignore it
   }
 #endif
   assert(node != nullptr,"[ASSERT] wrong param,nullptr")
@@ -553,7 +572,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
     goto system_specific;
   }
   else {
-    ASSERT(false,"[ASSERT]" __LINE__ __FILE__ "HAVE NOT IMPLEMENTED YET");
+    ASSERT(false,"[ASSERT]" #__LINE__ __FILE__ "HAVE NOT IMPLEMENTED YET");
   }
   
   return nullptr;
@@ -574,6 +593,7 @@ system_specific:
 
 //quickdoc: this is function dispatching bootstrapper entry,provided by system-specific function,DO NOT CALL host_run_* ! it does not even exist
 void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
+#ifdef __USE_UNIX__
   assert(hd_out != nullptr,"[ASSERT] wrong param, nullptr");
   if (hd_out->head == nullptr) {
     LOG("[INFO] dispatch list is empty");
@@ -583,29 +603,34 @@ void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
     if(cur_node == nullptr)
       break;
     pthread_t _placeholder;
-    pthread_create(&_placeholder,NULL,host_internal_dispatch_runner_system,cur_node);
+    pthread_create(&_placeholder,nullptr,host_internal_dispatch_runner_system,cur_node);
     pthread_detach(_placeholder);
     cur_node = cur_node->next;
   }
   return;
-}
+#else
+  return;
 #endif
+}
 
 
 //todo auto route function ,prefer waitpkg
 int host_run_hello_handshake(host_handshake_t* hh_out,void * addr) {
-#ifdef __USE_WAITPKG__   //to avoid umonitor is non compiled
-  if(is_support_umonitor())
+#ifdef __USE_WAITPKG__
+  if(is_support_umonitor()) {
+    LOG("[INFO] prefer waitpkg,switching to waitpkg routine");
     return host_run_hello_handshake_umonitor(hh_out,addr);
-#endif
+  }
+#endif    
   return host_run_hello_handshake_system(hh_out,addr);
 }
 int host_run_dispatch_handshake(host_dispatch_handshake_t* hdh_out,void* addr) {
 #ifdef __USE_WAITPKG__
-  if(is_supoprt_umonitor()) {
+  if(is_support_umonitor()) { //unless comparing that the macro exists, the function will be empty calling, although cpuid supports
+    LOG("[INFO] prefer waitpkg,switching to waitpkg routine");
     return host_run_dispatch_handshake_umonitor(hdh_out,addr);
   }
-#endif
-  return host_run_dispatch_handshake_umonitor(hdh_out,addr);
+#endif  
+  return host_run_dispatch_handshake_system(hdh_out,addr);
 }
 
