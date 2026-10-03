@@ -120,6 +120,7 @@
 #ifdef __USE_LINUX__
 #endif
 #ifdef __USE_UNIX__
+#include <pthread.h>
 #include <unistd.h>
 #endif
 #ifdef __USE_WAITPKG__
@@ -177,13 +178,14 @@ enum dispatch_type : char {
   FUNC = (char)0x2
 };
 
+struct [[gnu::packed]] __disp_list;
 typedef void(*dispatch_func_t)(struct __disp_list* self);
 //quickdoc: this is private struct,stores every function info node in RPC protocol,in stage 3
 struct [[gnu::packed]] __disp_list {
   dispatch_func_t dispatch_function; // nullptr if SHM/HUGE_SHM
   unsigned int length; //include flag
   void* base_addr; //include flag
-  dispatch_type d_t;
+  enum dispatch_type d_t;
   struct __disp_list* next; //represent as linked list which node represents single function,linear layout,
 };
 //quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
@@ -208,7 +210,7 @@ void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_hands
   hdh_out->flag_lowaddr = 1;
   hdh_out->flag_highaddr = 0;
   hdh_out->split_number = psplit_number;
-  hdh_out->bytes_per_split = pbytes_per_split
+  hdh_out->bytes_per_split = pbytes_per_split;
   return;
 }
 
@@ -246,6 +248,35 @@ void host_dispatch_destory_node(host_dispatch_t* hdt_out) {
   return;
 }
 
+
+/*
+  ret: is_error,the details will print on the stdio
+*/
+bool host_check_dispatches(host_dispatch_t* hdt){
+  assert(hdt != nullptr,"[ASSERT] wrong param, nullptr");
+  bool stat = true; //only write false,in the following context
+  unsigned int initial_length = 0;
+  struct __disp_list* cur_node = hdt->head;
+  while(true) {
+    if(cur_node == nullptr) {
+      LOG("[CHECK] end");
+      break;
+    }
+    if(cur_node->length == 0 | cur_node->base_addr == nullptr) {
+      LOG("[CHECK] invalid fields"); 
+      stat = false;
+    }
+    
+    initial_length += cur_node->length;
+    cur_node = cur_node->next;
+  }
+  if(initial_length != hdt->total_length) {
+    stat = false;
+  }
+  return stat;
+}
+
+
 /*
 todo: assert
 if dispatch_type == SHM
@@ -259,7 +290,7 @@ unique dispatch function add entry
 */
 void host_dispatch_append_node(host_dispatch_t* hdt_out,
                                host_dispatch_handshake_t* hdh_out, dispatch_func_t df,
-			       unsigned int len,dispatch_type dt) {
+			       unsigned int len,enum dispatch_type dt) {
   assert(hdt_out != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
   assert(len != 0,"[ASSERT] wrong param, incorrect len");
   if (dt == SHM)
@@ -300,49 +331,26 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
   return;
 }
 
-/*
-  ret: is_error,the details will print on the stdio
-*/
-bool host_check_dispatches(host_dispatch_t* hdt){
-  assert(hdt != nullptr,"[ASSERT] wrong param, nullptr");
-  bool stat = true; //only write false,in the following context
-  unsigned int initial_length = 0;
-  struct __disp_list* cur_node = hdt->head;
-  while(true) {
-    if(cur_node == nullptr) {
-      LOG("[CHECK] end");
-      break;
-    }
-    if(cur_node->length == 0 | cur_node->base_addr == nullptr) {
-      LOG("[CHECK] invalid fields"); 
-      stat = false;
-    }
-    
-    initial_length += cur_node->length;
-    cur_node = cur_node->next;
-  }
-  if(initial_length != hdt->total_length) {
-    stat = false;
-  }
-  return stat;
-}
 void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
                         bool is_umonitor, unsigned int length) {
   assert(out_ptr != nullptr,"[HANDINIT-ASSERT] wrong param, nullptr");
   memset(out_ptr,0,sizeof(host_handshake_t));
   out_ptr->hello_message = 1;
   if(is_phys && (!is_umonitor))
-    out_ptr->cap_mask = 00000010'00000001;
+    out_ptr->cap_mask = 00000010;
   if((!is_phys) && is_umonitor)
-    out_ptr->cap_mask = 00000001'00000001;
+    out_ptr->cap_mask = 00000001;
   if(is_phys && is_umonitor)
-    out_ptr->cap_mask = 00000011'00000001;
+    out_ptr->cap_mask = 00000011;
   unsigned int* length_ptr = (unsigned int*)(&(out_ptr->_1_length));
   *length_ptr = length;
 }
 
 
 /* ========== protocol processing routine ========== */
+
+extern int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr);
+extern int host_run_hello_handshake_system(host_handshake_t* hh_out,void* addr);
 //note: the following routines are platform dependent
 
 /*
@@ -413,7 +421,7 @@ int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void
   host_dispatch_handshake_t* dest = addr;
   char* flag_addr = addr;
   char* error_code_addr = addr + 1;
-  assert(dest->hello_message == 1,"[ASSERT] incorrect hello message");
+  assert(dest->flag_lowaddr == 1,"[ASSERT] incorrect hello message");
   //wait client
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
 waiting:  
@@ -492,7 +500,7 @@ int host_run_hello_handshake_system(host_handshake_t* hh_out,void* addr) {
 hello_handshake:  
   char* flag_addr = addr;
   char* ret_cap_mask_addr = addr + 1;
-  struct host_handshake_t* dest = addr;
+  host_handshake_t* dest = addr;
   __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
 hello_handshake_startup:
   system_specific_waiter(flag_addr);
@@ -514,7 +522,6 @@ hello_handshake_startup:
   return -1;
 #endif
 }
-
 int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* addr) {
 #ifdef __USE_UNIX__
   assert(hdh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
@@ -531,7 +538,7 @@ dispatch_handshake_startup:
   system_specific_waiter(flag_addr);
   if(__atomic_load_n(flag_addr,__ATOMIC_RELEASE))
     goto dispatch_handshake_startup;
-  char error_code = __atomic_load_n(errcode_addr);
+  char error_code = __atomic_load_n(errcode_addr,__ATOMIC_ACQUIRE);
   host_dispatch_handshake_t _clean_example = {0};
   __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
   if(error_code == 0x0)
@@ -572,7 +579,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
     goto system_specific;
   }
   else {
-    ASSERT(false,"[ASSERT]" #__LINE__ __FILE__ "HAVE NOT IMPLEMENTED YET");
+    assert(false,"[ASSERT] HAVE NOT IMPLEMENTED YET");
   }
   
   return nullptr;
