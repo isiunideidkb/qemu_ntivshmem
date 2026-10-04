@@ -295,8 +295,12 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
   assert(len != 0,"[ASSERT] wrong param, incorrect len");
   if (dt == SHM)
     assert(len == hdh_out->bytes_per_split,"[ASSERT] wrong param, incorrect len");
-  if (dt == HUGE_SHM || dt == FUNC)
+  if (dt == HUGE_SHM || dt == FUNC) {
+    if(dt == FUNC) {
+      assert(df != nullptr,"[ASSERT] incorrect dispatch function, nullptr");
+    }
     assert((len % hdh_out->bytes_per_split == 0),"[ASSERT] wrong param, incorrect len");
+  }
   struct __disp_list* node = malloc(sizeof(struct __disp_list));
   node->length = len;
   unsigned int initial_addr_offset = 0; //atomaticly calculates the offset
@@ -469,9 +473,7 @@ startup:
   if(__atomic_load_n(flag,__ATOMIC_ACQUIRE))
     goto startup;
   //if client pull down
-  LOG("[INFO] received a request");
   if(node->d_t == FUNC) {
-    assert(node->dispatch_function != nullptr,"[ASSERT] incorrect dispatch function, nullptr");
     (node->dispatch_function)(node);
   }
   else {
