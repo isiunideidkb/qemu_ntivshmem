@@ -1,4 +1,4 @@
-#ifundef __GNU__
+#ifndef __GNUC__
 #error "wrong platform"
 #endif
 
