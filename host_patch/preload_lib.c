@@ -53,7 +53,7 @@ void* init(void* func_addr)
       printf("[ERROR] bad cast for PRPATCH_BAR2_LENGTH env");
       syscall(SYS_exit,-1);   
     }
-    if(length_int > 0xFFFF_FFFF) {
+    if(length_int > 0xFFFF'FFFF) {
       printf("[ERROR] invalid value for PRPATCH_BAR2_LENGTH env");
       syscall(SYS_exit,-1);      
     }

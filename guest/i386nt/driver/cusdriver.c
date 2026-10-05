@@ -42,10 +42,24 @@
  *     FAST_MUTEX here would bugcheck.  KMUTEX does not change IRQL.
  * ==========================================================================*/
 
+// 1. 必须处于 DDK 构建环境
+#if !defined(_X86_) || !defined(_X86_)
+    #error "FATAL: Not in an x86 DDK build environment. Run setenv.bat with 'x86' argument."
+#endif
+
+// 2. 绝对禁止 x64 / AMD64 环境混入
+#if defined(_AMD64_) || defined(_WIN64) || defined(_M_X64) || defined(_M_AMD64)
+    #error "FATAL: x64 environment detected. This driver is x86-ONLY."
+#endif
+
+// 3. 禁止编译器自带架构宏指向非 x86
+#if defined(_M_IA64) || defined(_M_ARM) || defined(_M_ARM64)
+    #error "FATAL: Non-x86 compiler target detected."
+#endif
+ 
 #include <ntddk.h>
 #include <stdarg.h> /* compiler-intrinsic: va_list / va_start / va_arg / va_end */
 #include <wdm.h>
-
 /* ------------------------------------------------------------------------
  * Pool tag.  Only used if we ever call ExAllocatePoolWithTag.
  * ---------------------------------------------------------------------- */
@@ -104,9 +118,9 @@ static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusUnsupported(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusSyncComplete(PDEVICE_OBJECT DevObj, PIRP Irp, PVOID Context);
 
-static VOID CusLogInit(VOID);
-static VOID CusLogClose(VOID);
-static VOID CusLog(const char *fmt, ...);
+VOID CusLogInit(VOID);
+VOID CusLogClose(VOID);
+VOID CusLog(const char *fmt, ...);
 
 /* ========================================================================
  *  Logging
