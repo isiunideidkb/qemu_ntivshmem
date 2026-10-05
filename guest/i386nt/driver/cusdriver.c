@@ -1,6 +1,9 @@
 //todo add MONITOR/MWAIT support & ioctl
-//todo virtaddr convert to phys_addr ioctl for userspace process
+//todo virtaddr convert userspace_virt_addr to phys_addr ioctl for userspace process with specifying length,NonPaged Required,and lock(or modify) this page to non paged locked
 
+
+
+//todo monitor/mwait ioctl wrapper for systesm specific waiter
 
 /* ============================================================================
  * cusdriver.c
@@ -79,6 +82,11 @@
 #ifndef ACCESS_FROM_CTL_CODE
 #define ACCESS_FROM_CTL_CODE(ctl) (((ctl) >> 14) & 0x3u)
 #endif
+
+extern _Bool IsSupportMonitor();
+extern _Bool MonitorInit();
+extern void MonitorAddr(void* addr);
+extern void WaitAddr();
 
 /* ------------------------------------------------------------------------
  * Device extension

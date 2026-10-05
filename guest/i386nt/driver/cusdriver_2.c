@@ -91,11 +91,15 @@ monitor_init:
   return true;
 }
 [[gnu::target("sse3")]] void MonitorAddr(void* addr) {
-  //todo advance extension support see IA32SDM
+  //todo advance extension support see IA32SDM, do not using stack addr space for 1th param
   __builtin_ia32_monitor (addr,0,0);
 }
 
-[[gnu::target("sse3")]] void WaitAddr(void* addr) {
+[[gnu::target("sse3")]] void WaitAddr() {
   //todo advance extension support see IA32SDM
   __builtin_ia32_mwait (0,0);
 }
+
+
+//todo monitor addr with ext
+//todo wait with ext

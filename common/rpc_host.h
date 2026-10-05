@@ -146,7 +146,7 @@ typedef void(*ssw_t)(void* addr);
 //this waiter receives a addr,listens the modification in 1byte region
 //this variable is private linkage(i.e. static)
 static ssw_t system_specific_waiter = nullptr;
-void set_system_specific_waiter(void* target) {
+void set_host_system_specific_waiter(void* target) {
   system_specific_waiter = (ssw_t)(target);
   return;
 }
@@ -168,7 +168,7 @@ typedef struct [[gnu::packed]] _host_dispatch_handshake_t {
   char flag_lowaddr;
   char flag_highaddr;
   unsigned short split_number;
-  unsigned short bytes_per_split;
+  unsigned int bytes_per_split;
 } host_dispatch_handshake_t;
 
 //quickdoc: dispatch_type used by dispatch handshake protocol
@@ -181,6 +181,21 @@ enum dispatch_type : char {
 struct [[gnu::packed]] __disp_list;
 typedef void(*dispatch_func_t)(struct __disp_list* self);
 //quickdoc: this is private struct,stores every function info node in RPC protocol,in stage 3
+/*
+note : that actual single function layout is
+struct [[gnu::packed]] function {
+  char flag;
+  char function_code;
+  union {
+    char content[total_length-2];
+    struct [[gnu::packed]] {
+      unsigned int huge_page_bytes;
+      char content[total_length-6];
+    }
+  }
+}
+we don't use this layout,use separating atomic_writes from the layouts instead of
+*/
 struct [[gnu::packed]] __disp_list {
   dispatch_func_t dispatch_function; // nullptr if SHM/HUGE_SHM
   unsigned int length; //include flag
@@ -477,11 +492,12 @@ startup:
     (node->dispatch_function)(node);
   }
   else {
-    LOG("[INFO] find an empty SHM");
-    //pass if type is SHM/HUGE_SHM
+    if(node->d_t == HUGE_SHM)
+      __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
+    LOG("[INFO] found SHM node");
+    return nullptr;
   }
   goto startup;
-  return nullptr;
 #else
   return nullptr;
 #endif
@@ -594,13 +610,15 @@ system_specific:
     (node->dispatch_function)(node);
   }
   else {
-    LOG("[INFO] passed for non FUNC function");
+    if(node->d_t == HUGE_SHM)
+      __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE); //unsigned int
+    LOG("[INFO] found SHM node");
+    return nullptr;
   }
   goto system_specific;
-  return nullptr;
 }
 
-//quickdoc: this is function dispatching bootstrapper entry,provided by system-specific function,DO NOT CALL host_run_* ! it does not even exist
+//quickdoc: this is function dispatching every function via bootstrapper,provided by system-specific function,DO NOT CALL host_run_* ! it does not even exist
 void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
 #ifdef __USE_UNIX__
   assert(hd_out != nullptr,"[ASSERT] wrong param, nullptr");
