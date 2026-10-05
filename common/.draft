@@ -16,6 +16,8 @@ data Addr Space
 LowAddr <-> HighAddr
 ---All Zero Filled---
 
+<address length> means the whole length of addr space, not include 0!
+
 which in Hello:
 Low 1byte HelloMessage
 High 1byte capability mask
@@ -45,6 +47,8 @@ data Addr Space
 <2byte ushort for Flag> <2byte int for split number> <4byte bytes per split>
 LowAddr <-> HighAddr
 ---All Zero Filled---
+
+requires <split number> * <bytes per split> == <length>
 
 note: the max vlaue of split number is 65535 unsigned int, requires <split number> ge(>=) 1
 note: the bytes per split is 4byte unsigned int, requires the <bytes per split> must be the power of 2 and greater|equals than 2MB
@@ -97,6 +101,7 @@ which in the <huge SHM Flag>
   Low 1byte Flag reserved DONOT READ&WRITE 0x1 for constant
   High 1byte Flag READONLY 0x0 for constant
 requires <huge SHM Flag> + <huge SHM size> +<huge SHM body> = <any_pos_integer> * <bytes per split>
+requires value of <SHM size> == <huge SHM Flag> + <if exists huge SHM size> + <huge SHM body>
 NOTE: make the SHM space inhabits on the tail space of <data> as mush as possible,but it's not a contraint
 
 the SHM
@@ -106,7 +111,7 @@ the SHM layout
 LowAddr <-> HighAddr
 ---All Zero Filled---
 differ to huge page SHM,the SHM(<SHM Flag> + <SHM body>) occupies <bytes per split> bytes
-which in <SHm Flag>
+which in <SHM Flag>
   LowAddr Reserved DONOT READWRITE 0x1 for constant
   HighAddr Reserved DONOT READ 0x1 for constant
 the SHM is used by Non-SHM functions as well
@@ -149,3 +154,6 @@ concrete rpc procedure similar to the before steps:
 7. back to 1
 
 rpcs are anonymous,the concrete steps also depends on the conventions
+
+
+one last requirements <add all functions include flags&sizes> == <length>

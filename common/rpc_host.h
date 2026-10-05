@@ -220,7 +220,8 @@ void host_dispatch_handshake_init(host_dispatch_handshake_t* hdh_out, host_hands
   unsigned int* length_ptr = (unsigned int*)(&(hht_out->_1_length));
   assert(psplit_number * pbytes_per_split == *length_ptr,"[ASSERT] wrong param, incorrect length");
   assert(psplit_number >= 1,"[ASSERT] wrong param")
-  assert ((pbytes_per_split) > 0 && ((pbytes_per_split & (pbytes_per_split - 1)) == 0),"[ASSERT] wrong param, incorrect bytes_per_split")
+  assert ((pbytes_per_split) > 0 && ((pbytes_per_split & (pbytes_per_split - 1)) == 0),"[ASSERT] wrong param, incorrect bytes_per_split") //must be the power of 2
+  assert(pbytes_per_split >= 8,"[ASSERT] wrong param,incorrect bytes_per_split");
   memset(hdh_out,0,sizeof(host_dispatch_handshake_t));
   hdh_out->flag_lowaddr = 1;
   hdh_out->flag_highaddr = 0;
@@ -288,6 +289,7 @@ bool host_check_dispatches(host_dispatch_t* hdt){
   if(initial_length != hdt->total_length) {
     stat = false;
   }
+  LOG("[CHECK] SUCCESS!"); 
   return stat;
 }
 
@@ -308,6 +310,10 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
 			       unsigned int len,enum dispatch_type dt) {
   assert(hdt_out != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
   assert(len != 0,"[ASSERT] wrong param, incorrect len");
+  if (host_check_dispatches(hdt_out)) {
+    LOG("[WARN] the length are full,will not append");
+    return;
+  }
   if (dt == SHM)
     assert(len == hdh_out->bytes_per_split,"[ASSERT] wrong param, incorrect len");
   if (dt == HUGE_SHM || dt == FUNC) {
@@ -346,13 +352,13 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
     hdt_out->end->next = node;
     hdt_out->end = node;
   }
-  host_check_dispatches(hdt_out);
   return;
 }
 
 void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
                         bool is_umonitor, unsigned int length) {
   assert(out_ptr != nullptr,"[HANDINIT-ASSERT] wrong param, nullptr");
+  assert ((length) > 0 && ((length & (length - 1)) == 0),"[ASSERT] wrong param, incorrect hello handshake length") //must be the power of 2
   memset(out_ptr,0,sizeof(host_handshake_t));
   out_ptr->hello_message = 1;
   if(is_phys && (!is_umonitor))
