@@ -32,14 +32,15 @@ static void test_a_func_slot_runs_its_handler_and_lowers_the_gate(void) {
   REQUIRE_SYSTEM_BACKEND("servicer: no system backend compiled in for this configuration");
   handler_calls = 0;
   last_self = nullptr;
-  arm(RPC_CLIENT_FUNC, 0, 0); /* gate down: the servicer must wait for it */
+  arm(RPC_CLIENT_FUNC, 0, 1); /* the host raised the Gate before this turn */
 
   int rc = rpc_client_service_slot_system(&node);
 
   CHECK(rc == 1, "servicer: a FUNC slot was serviced");
   CHECK(handler_calls == 1, "servicer: the registered handler ran exactly once");
   CHECK(last_self == &node, "servicer: the handler was handed its own slot");
-  CHECK(space[0] == 0, "servicer: the Gate was lowered so the host can continue");
+  CHECK(g_gate_at_first_wait == 0,
+        "servicer: the Gate was handed back before the servicer parked");
 }
 
 static void test_a_shm_slot_needs_no_handler(void) {
@@ -92,7 +93,7 @@ static void test_the_router_agrees_with_the_system_servicer(void) {
   /* the literal effects, not just self-agreement: on a system-only build the
      router and the entry are the same path, so comparing them alone proves
      nothing */
-  bool router_lowered = (space[0] == 0);
+  bool router_handed_back = (g_gate_at_first_wait == 0);
   bool router_read_kind = (node.d_t == RPC_CLIENT_SHM);
 
   arm(RPC_CLIENT_SHM, 0, 1);
@@ -100,8 +101,8 @@ static void test_the_router_agrees_with_the_system_servicer(void) {
 
   CHECK(via_router == 1 && via_system == 1,
         "servicer: the router services a slot just as the system entry does");
-  CHECK(router_lowered && router_read_kind,
-        "servicer: the router really serviced it -- read the kind and lowered the Gate");
+  CHECK(router_handed_back && router_read_kind,
+        "servicer: the router really serviced it -- read the kind and handed the Gate back");
 }
 
 /*

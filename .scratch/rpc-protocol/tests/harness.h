@@ -52,8 +52,17 @@ static unsigned int g_space_len = 0;
 static int g_waiter_calls = 0;
 static int g_raise_on_call = 1;
 static int g_untouched_while_gate_down = 1;
+/*
+  What the Gate held the first time the client parked. Since the client's turn is
+  check -> work -> write 0 -> wait, a first park that sees 0 proves the client
+  handed the Gate back BEFORE waiting -- which is the order the draft lays down.
+*/
+static int g_gate_at_first_wait = -1;
 
 static void harness_fake_waiter(void *addr) {
+  if (g_waiter_calls == 0) {
+    g_gate_at_first_wait = (int)*(volatile char *)addr;
+  }
   g_waiter_calls++;
   if (g_waiter_calls < g_raise_on_call) {
     /* the client must not have written anything yet */
@@ -77,6 +86,7 @@ static inline void harness_bind(char *space, char *snapshot, unsigned int len) {
   g_waiter_calls = 0;
   g_raise_on_call = 1;
   g_untouched_while_gate_down = 1;
+  g_gate_at_first_wait = -1;
   set_client_specific_waiter((void *)harness_fake_waiter);
 }
 

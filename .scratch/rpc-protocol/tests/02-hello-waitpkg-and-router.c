@@ -39,11 +39,10 @@ static void scenario_router_hello(void) {
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
   unsigned int len = SPACE_LEN;
   memcpy(space + 2, &len, sizeof len); /* the host published its length */
+  space[0] = 1;                        /* and raised the Gate before handing over */
 
   /* Only the waitpkg backend needs a host reaching in from outside. The system
-     backend raises the Gate through its injected waiter, and starting the
-     thread anyway would let it fire after the client had already finished --
-     resurrecting the Gate the client had just lowered. */
+     backend is released by its injected waiter at the end of the turn. */
   pthread_t t;
   bool concurrent_host = is_support_umonitor();
   if (concurrent_host) {
@@ -55,7 +54,8 @@ static void scenario_router_hello(void) {
   }
 
   CHECK(rc == 1, "router: the well formed hello was accepted");
-  CHECK(space[0] == 0, "router: the Gate was lowered so the host can continue");
+  CHECK(g_gate_at_first_wait == 0,
+        "router: the Gate was handed back before the client parked");
 }
 
 static void test_the_router_completes_on_whichever_backend_it_picks(void) {

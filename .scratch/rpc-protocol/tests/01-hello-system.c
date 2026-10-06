@@ -27,21 +27,28 @@ static void bind_and_publish(char hello_message, char host_cap_mask, unsigned in
 /* --- the seam itself --- */
 
 static void test_the_seam_drives_the_protocol(void) {
-  /* the host has already raised the Gate, which by the protocol's timing is the
-     normal case: the client must reach its verdict without waiting at all */
+  /* the host raised the Gate before handing over, which by the protocol's
+     timing is the normal case */
   bind_and_publish(1, 0, SPACE_LEN);
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
   int rc = rpc_client_run_hello_handshake_system(&hh, space);
   CHECK(rc == 1, "seam: a client entry runs against a fabricated host and returns a verdict");
-  CHECK(g_waiter_calls == 0, "seam: with the Gate already up the client never parks");
+  CHECK(g_gate_at_first_wait == 0,
+        "seam: the client handed the Gate back BEFORE it parked -- the draft's order");
+  CHECK(g_waiter_calls >= 1, "seam: the client then waited for the host's next move");
+}
 
-  /* the host raises it late: now the injected waiter carries the wait */
+/* the Gate being down when a stage is entered is a caller error, not a wait */
+static void run_a_stage_with_the_gate_down(void) {
   bind_and_publish(0, 0, SPACE_LEN);
-  harness_raise_gate_on(2);
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
-  rc = rpc_client_run_hello_handshake_system(&hh, space);
-  CHECK(g_waiter_calls >= 2, "seam: with the Gate down the injected waiter was used");
-  CHECK(rc == 1, "seam: and the handshake completed once the Gate came up");
+  rpc_client_run_hello_handshake_system(&hh, space);
+}
+
+static void test_a_stage_entered_with_the_gate_down_is_a_caller_error(void) {
+  int status = harness_run_isolated(run_a_stage_with_the_gate_down, 5);
+  CHECK(status != 0 && status != 126,
+        "seam: entering a stage with the Gate down aborts -- the host has not started it");
 }
 
 /* --- acceptance criteria --- */
@@ -81,7 +88,8 @@ static void test_accepts_a_valid_hello(void) {
 
   CHECK(rc == 1, "valid hello: reported as accepted");
   CHECK(space[1] == hh.cap_mask, "valid hello: client answered with its own Capability Mask");
-  CHECK(space[0] == 0, "valid hello: client lowered the Gate");
+  CHECK(g_gate_at_first_wait == 0,
+        "valid hello: client handed the Gate back before parking");
 }
 
 static void test_rejects_a_malformed_host_capability_mask(void) {
@@ -123,17 +131,19 @@ static void test_rejects_a_length_mismatch(void) {
   CHECK(space[0] == 0, "length mismatch: client still lowered the Gate");
 }
 
-static void test_writes_nothing_while_the_gate_is_down(void) {
-  bind_and_publish(0, 0, SPACE_LEN); /* gate down: byte 0 is 0 */
+static void test_writes_nothing_before_the_host_acts(void) {
+  /* the client's first act is the check, and its write comes with the answer:
+     freeze the host's bytes and confirm nothing moved until the client's turn
+     ends and it parks */
+  bind_and_publish(1, 0, SPACE_LEN);
   harness_freeze();
-  harness_raise_gate_on(3); /* the gate only comes up on the third waiter call */
   rpc_client_handshake_init(&hh, false, true, SPACE_LEN);
 
   int rc = rpc_client_run_hello_handshake_system(&hh, space);
 
-  CHECK(g_untouched_while_gate_down == 1, "gate down: client wrote nothing while waiting");
-  CHECK(g_waiter_calls >= 3, "gate down: client kept waiting rather than proceeding");
-  CHECK(rc == 1, "gate down: once raised, the handshake completed normally");
+  CHECK(rc == 1, "ordering: the handshake completed");
+  CHECK(g_gate_at_first_wait == 0,
+        "ordering: check, then answer, then write 0 -- and only then park");
 }
 
 static void test_a_rejection_still_lowers_the_gate(void) {
@@ -152,9 +162,10 @@ static void test_a_rejection_still_lowers_the_gate(void) {
 
 static void run_without_a_waiter(void) {
   harness_drop_waiter();
-  /* the Gate must be DOWN for this to prove anything: with it already up the
-     client has nothing to wait for and no waiter is needed */
-  memset(space, 0, SPACE_LEN);
+  /* the Gate must be UP, or the stage aborts on the check before it ever needs
+     a waiter -- then the trailing wait has no waiter and aborts instead */
+  bind_and_publish(1, 0, SPACE_LEN);
+  harness_drop_waiter();
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
   rpc_client_run_hello_handshake_system(&hh, space);
 }
@@ -174,12 +185,13 @@ int main(void) {
     return REPORT();
   }
   test_the_seam_drives_the_protocol();
+  test_a_stage_entered_with_the_gate_down_is_a_caller_error();
   test_answers_with_the_drafts_capability_bits();
   test_accepts_a_valid_hello();
   test_rejects_a_malformed_host_capability_mask();
   test_rejects_a_bad_hello_message();
   test_rejects_a_length_mismatch();
-  test_writes_nothing_while_the_gate_is_down();
+  test_writes_nothing_before_the_host_acts();
   test_a_rejection_still_lowers_the_gate();
   test_fails_loudly_without_a_waiter();
   return REPORT();

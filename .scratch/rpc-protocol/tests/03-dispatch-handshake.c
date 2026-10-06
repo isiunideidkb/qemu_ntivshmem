@@ -25,7 +25,8 @@ static void test_accepts_a_possible_layout(void) {
 
   CHECK(rc == 1, "dispatch: a possible layout is accepted");
   CHECK(space[1] == 0x0, "dispatch: the error code written back is OK");
-  CHECK(space[0] == 0, "dispatch: the Gate was lowered");
+  CHECK(g_gate_at_first_wait == 0,
+        "dispatch: the Gate was handed back before the client parked");
   CHECK(hdh.split_number == 3 && hdh.bytes_per_split == 4096,
         "dispatch: the layout was kept for discovery to use");
 }
@@ -46,19 +47,18 @@ static void test_rejects_an_impossible_space_count(void) {
   CHECK(space[0] == 0, "dispatch: the Gate was lowered even on rejection");
 }
 
-static void test_reads_nothing_until_the_gate_is_up(void) {
+/* the Gate down when a stage is entered is a caller error, not a wait */
+static void run_dispatch_with_the_gate_down(void) {
   harness_bind(space, snap, SPACE_LEN);
-  harness_publish_dispatch(space, 0, 0, 3, 4096); /* gate still down */
-  harness_freeze();
-  harness_raise_gate_on(3);
+  harness_publish_dispatch(space, 0, 0, 3, 4096);
   memset(&hdh, 0, sizeof hdh);
+  rpc_client_run_dispatch_handshake_system(&hdh, space);
+}
 
-  rc = rpc_client_run_dispatch_handshake_system(&hdh, space);
-
-  CHECK(g_untouched_while_gate_down == 1,
-        "dispatch: nothing was written while the Gate was still down");
-  CHECK(g_waiter_calls >= 3, "dispatch: the client kept waiting rather than proceeding");
-  CHECK(rc == 1, "dispatch: once raised, the handshake completed normally");
+static void test_a_dispatch_entered_with_the_gate_down_is_a_caller_error(void) {
+  int status = harness_run_isolated(run_dispatch_with_the_gate_down, 5);
+  CHECK(status != 0 && status != 126,
+        "dispatch: entering with the Gate down aborts -- the host has not started it");
 }
 
 /*
@@ -115,7 +115,7 @@ int main(void) {
   test_accepts_a_possible_layout();
   test_rejects_an_impossible_function_count();
   test_rejects_an_impossible_space_count();
-  test_reads_nothing_until_the_gate_is_up();
+  test_a_dispatch_entered_with_the_gate_down_is_a_caller_error();
   test_a_rejection_clears_an_earlier_layout();
   test_the_router_agrees_with_the_system_entry();
   return REPORT();

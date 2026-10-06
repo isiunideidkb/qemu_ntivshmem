@@ -405,14 +405,25 @@ int rpc_client_discover_dispatch(rpc_client_dispatch_t *hdt_out,
 
 /* ========== the Gate ========== */
 /*
-  quickdoc: return once the host has raised the Gate at flag.
+  quickdoc: the Gate must already be up when the client's turn starts.
 
-  the condition is tested FIRST. by the protocol's timing the host has usually
-  raised the Gate before the client reaches here -- the client is the passive
-  side -- and parking on an event that has already happened never returns.
+  the host raises it before handing over, so a client entered with the Gate down
+  was entered at the wrong moment -- undefined, not something to wait out.
+*/
+PRIVATE_FUNC void rpc_client_gate_expect_up(char *flag) {
+  assert(__atomic_load_n(flag, __ATOMIC_ACQUIRE) != 0,
+         "[ASSERT] the Gate is down, the host has not started this DIALOG");
+}
 
-  the waitpkg arm re-reads after arming for the same reason: a store that landed
-  before the monitor armed will never wake the wait.
+/*
+  quickdoc: the client's turn is over, so wait for the host's next move.
+
+  this comes LAST in a turn, after the client has written 0. the client is the
+  passive side: it does its business, hands the Gate back, and only then waits.
+
+  the condition is checked first, because the host may already have raised the
+  Gate again. the waitpkg arm re-reads after arming for the same reason: a store
+  that landed before the monitor armed would never wake the wait.
 */
 PRIVATE_FUNC void rpc_client_wait_until_gate_up(char *flag, bool umonitor_backend) {
   while (!__atomic_load_n(flag, __ATOMIC_ACQUIRE)) {
@@ -420,7 +431,9 @@ PRIVATE_FUNC void rpc_client_wait_until_gate_up(char *flag, bool umonitor_backen
 #ifdef __USE_WAITPKG__
       _umonitor(flag);
       if (!__atomic_load_n(flag, __ATOMIC_ACQUIRE)) {
-        _umwait(1, 0);
+        //note: both operands 0. 0 means no timeout, and the processor stays in
+        //a shallow state -- a bounded wait here would let it sink into C1
+        _umwait(0, 0);
       }
 #else
       assert(false, "[ASSERT] the waitpkg backend was not compiled in");
@@ -439,11 +452,11 @@ PRIVATE_FUNC void rpc_client_wait_until_gate_up(char *flag, bool umonitor_backen
 extern int rpc_client_run_hello_handshake_system(rpc_client_handshake_t *hh_out, void *addr);
 
 /*
-  quickdoc: the Hello DIALOG. wait for the Gate, validate what the host
-  published, answer with the capability mask, lower the Gate.
+  quickdoc: the Hello DIALOG. the client's turn, in the draft's order: check what
+  the host published, answer, hand the Gate back, then wait for the host again.
 
   returns 1  ok
-  returns 0  rejected; the error bit is set for the host
+  returns 0  rejected; the error bit is set for the host and the DIALOG ends
 */
 PRIVATE_FUNC int rpc_client_hello_handshake_common(rpc_client_handshake_t *hh_out, void *addr,
                                                    bool umonitor_backend) {
@@ -452,7 +465,8 @@ PRIVATE_FUNC int rpc_client_hello_handshake_common(rpc_client_handshake_t *hh_ou
   unsigned int *host_length_ptr = (unsigned int *)(addr + 2);
   unsigned int *own_length_ptr = (unsigned int *)(&(hh_out->_1_length));
 
-  rpc_client_wait_until_gate_up(flag_addr, umonitor_backend);
+  //the host raised the Gate before handing over
+  rpc_client_gate_expect_up(flag_addr);
 
   char hello_message = __atomic_load_n((char *)addr, __ATOMIC_ACQUIRE);
   char host_cap_mask = __atomic_load_n(cap_mask_addr, __ATOMIC_ACQUIRE);
@@ -471,6 +485,7 @@ PRIVATE_FUNC int rpc_client_hello_handshake_common(rpc_client_handshake_t *hh_ou
     rejected = true;
   }
   if (rejected) {
+    //the DIALOG ends here, so there is no next move to wait for
     __atomic_store_n(cap_mask_addr, (char)(hh_out->cap_mask | RPC_CLIENT_CAP_ERROR),
                      __ATOMIC_RELEASE);
     __atomic_store_n(flag_addr, 0, __ATOMIC_RELEASE);
@@ -478,6 +493,7 @@ PRIVATE_FUNC int rpc_client_hello_handshake_common(rpc_client_handshake_t *hh_ou
   }
   __atomic_store_n(cap_mask_addr, hh_out->cap_mask, __ATOMIC_RELEASE);
   __atomic_store_n(flag_addr, 0, __ATOMIC_RELEASE);
+  rpc_client_wait_until_gate_up(flag_addr, umonitor_backend);
   return 1;
 }
 
@@ -526,8 +542,8 @@ extern int rpc_client_run_dispatch_handshake_system(rpc_client_dispatch_handshak
                                                     void *addr);
 
 /*
-  quickdoc: the Dispatch DIALOG. wait for the Gate, check the layout the host
-  published, answer with an error code, lower the Gate.
+  quickdoc: the Dispatch DIALOG. the client's turn, in the draft's order: check
+  the layout the host published, answer, hand the Gate back, then wait.
 
   returns 1   ok, the layout is kept in hdh_out
   returns 0   ILLEGAL FUNC COUNT
@@ -546,7 +562,7 @@ PRIVATE_FUNC int rpc_client_dispatch_handshake_common(rpc_client_dispatch_handsh
   //handshake in the same structure
   memset(hdh_out, 0, sizeof *hdh_out);
 
-  rpc_client_wait_until_gate_up(flag_addr, umonitor_backend);
+  rpc_client_gate_expect_up(flag_addr);
 
   unsigned short host_split_number = __atomic_load_n(split_ptr, __ATOMIC_ACQUIRE);
   unsigned int host_bytes_per_split = __atomic_load_n(bps_ptr, __ATOMIC_ACQUIRE);
@@ -565,6 +581,7 @@ PRIVATE_FUNC int rpc_client_dispatch_handshake_common(rpc_client_dispatch_handsh
 
   switch (error_code) {
   case RPC_CLIENT_DISP_OK:
+    rpc_client_wait_until_gate_up(flag_addr, umonitor_backend);
     return 1;
   case RPC_CLIENT_DISP_ILLEGAL_FUNC_COUNT:
     return 0;
@@ -639,7 +656,8 @@ PRIVATE_FUNC void rpc_client_slot_service_body(struct __client_disp_list *node) 
 
 extern int rpc_client_service_slot_system(struct __client_disp_list *node);
 
-//quickdoc: service one slot, waiting for its Gate. returns -1 when not compiled in
+//quickdoc: one servicing turn: check the Gate, service, hand it back, wait.
+//returns 1 serviced, -1 when not compiled in
 int rpc_client_service_slot_umonitor(struct __client_disp_list *node) {
 #ifdef __USE_WAITPKG__
   assert(node != nullptr, "[ASSERT] wrong param, nullptr");
@@ -647,8 +665,9 @@ int rpc_client_service_slot_umonitor(struct __client_disp_list *node) {
     LOG("[WARN] waitpkg ISA is not supported on your CPU, rolling back");
     return rpc_client_service_slot_system(node);
   }
-  rpc_client_wait_until_gate_up(node->base_addr, true);
+  rpc_client_gate_expect_up(node->base_addr);
   rpc_client_slot_service_body(node);
+  rpc_client_wait_until_gate_up(node->base_addr, true);
   return 1;
 #else
   (void)node;
@@ -656,13 +675,14 @@ int rpc_client_service_slot_umonitor(struct __client_disp_list *node) {
 #endif
 }
 
-//quickdoc: service one slot, waiting for its Gate. returns -1 when there is no
-//system api
+//quickdoc: one servicing turn: check the Gate, service, hand it back, wait.
+//returns 1 serviced, -1 when there is no system api
 int rpc_client_service_slot_system(struct __client_disp_list *node) {
 #ifdef RPC_CLIENT_HAVE_SYSTEM_API
   assert(node != nullptr, "[ASSERT] wrong param, nullptr");
-  rpc_client_wait_until_gate_up(node->base_addr, false);
+  rpc_client_gate_expect_up(node->base_addr);
   rpc_client_slot_service_body(node);
+  rpc_client_wait_until_gate_up(node->base_addr, false);
   return 1;
 #else
   (void)node;
