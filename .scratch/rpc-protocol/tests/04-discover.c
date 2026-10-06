@@ -67,26 +67,40 @@ static void test_every_slot_kind_is_recorded_in_order(void) {
   CHECK(rpc_client_dispatch_node_at(&dt, 1)->length == BPS, "discover: an SHM slot spans exactly one Bytes per Split");
 }
 
-static void test_nothing_dispatched_is_reported_separately(void) {
+/*
+  A zero split_number cannot reach here through the handshake, which refuses it.
+  The client asserts on states a correct caller cannot reach rather than handing
+  back a value the caller might plough on from.
+*/
+static void run_discover_with_zero_splits(void) {
   harness_bind(space, snap, SPACE_LEN);
   memset(&hdh, 0, sizeof hdh);
   hdh.split_number = 0;
   hdh.bytes_per_split = BPS;
   memset(&dt, 0, sizeof dt);
-
-  CHECK(rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN) == -1,
-        "discover: zero splits reports nothing was dispatched");
+  rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN);
 }
 
-static void test_a_layout_that_does_not_tile_is_rejected(void) {
+static void test_zero_splits_is_a_caller_error(void) {
+  int status = harness_run_isolated(run_discover_with_zero_splits, 5);
+  CHECK(status != 0 && status != 126,
+        "discover: zero splits aborts -- the handshake already refused that layout");
+}
+
+/* a length the layout cannot produce is the caller's arithmetic, not the host's */
+static void run_discover_with_a_mismatched_length(void) {
   harness_bind(space, snap, SPACE_LEN);
   memset(&hdh, 0, sizeof hdh);
   hdh.split_number = 3; /* 3 x 4096 != 16384 */
   hdh.bytes_per_split = BPS;
   memset(&dt, 0, sizeof dt);
+  rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN);
+}
 
-  CHECK(rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN) == 0,
-        "discover: splits that do not multiply out to the space length are rejected");
+static void test_a_mismatched_length_is_a_caller_error(void) {
+  int status = harness_run_isolated(run_discover_with_a_mismatched_length, 5);
+  CHECK(status != 0 && status != 126,
+        "discover: a length the layout cannot produce aborts as a caller error");
 }
 
 /*
@@ -168,8 +182,8 @@ static void test_destroying_the_table_leaves_the_space_alone(void) {
 int main(void) {
   test_a_huge_node_spanning_two_splits_is_stepped_over();
   test_every_slot_kind_is_recorded_in_order();
-  test_nothing_dispatched_is_reported_separately();
-  test_a_layout_that_does_not_tile_is_rejected();
+  test_zero_splits_is_a_caller_error();
+  test_a_mismatched_length_is_a_caller_error();
   test_an_unpublished_huge_size_is_refused();
   test_an_oversized_huge_size_is_refused();
   test_a_refusal_clears_an_earlier_table();

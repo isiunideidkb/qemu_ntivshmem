@@ -52,11 +52,16 @@ static void test_dispatch_reports_all_three_local_verdicts(void) {
         "contract: dispatch reports -1 for an illegal space count");
 }
 
-static void test_discover_reports_all_three_verdicts(void) {
+/*
+  discover has two outcomes it reports: the layout is usable, or the host's data
+  is not. Caller errors -- a zero split count, a length the layout cannot
+  produce -- abort instead, and 04 covers those.
+*/
+static void test_discover_reports_ok_or_a_refused_layout(void) {
   rpc_client_dispatch_t dt;
 
-  /* the space has to carry real slots: a zeroed one reads as HUGE_SHM nodes
-     with no published span, which discovery rightly refuses */
+  /* a space carrying real slots: an all-zero one reads as HUGE_SHM nodes with
+     no published span, which discovery rightly refuses */
   harness_bind(space, snap, SPACE_LEN);
   harness_stamp_slot(space + 0 * 4096, RPC_CLIENT_SHM, 0);
   harness_stamp_slot(space + 1 * 4096, RPC_CLIENT_SHM, 0);
@@ -68,19 +73,14 @@ static void test_discover_reports_all_three_verdicts(void) {
         "contract: discover reports 1 on a tiling layout");
   rpc_client_dispatch_destroy_node(&dt);
 
+  /* the host's own data is unusable, which the caller does need to hear about */
   harness_bind(space, snap, SPACE_LEN);
+  harness_stamp_slot(space + 0 * 4096, RPC_CLIENT_HUGE_SHM, 0);
   memset(&hdh, 0, sizeof hdh);
-  hdh.split_number = 0;
-  hdh.bytes_per_split = 4096;
-  CHECK(rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN) == -1,
-        "contract: discover reports -1 when nothing was dispatched");
-
-  harness_bind(space, snap, SPACE_LEN);
-  memset(&hdh, 0, sizeof hdh);
-  hdh.split_number = 5; /* 5 x 4096 != 12288 */
+  hdh.split_number = 3;
   hdh.bytes_per_split = 4096;
   CHECK(rpc_client_discover_dispatch(&dt, &hdh, space, SPACE_LEN) == 0,
-        "contract: discover reports 0 when the layout does not tile the space");
+        "contract: discover reports 0 when the host's layout is unusable");
 }
 
 static void test_the_servicer_reports_serviced_or_not_ready(void) {
@@ -151,7 +151,7 @@ static void test_system_entries_report_unimplemented_without_a_system_api(void) 
 int main(void) {
   test_hello_reports_success_and_a_peer_error();
   test_dispatch_reports_all_three_local_verdicts();
-  test_discover_reports_all_three_verdicts();
+  test_discover_reports_ok_or_a_refused_layout();
   test_the_servicer_reports_serviced_or_not_ready();
   test_waitpkg_entries_report_unimplemented_when_switched_off();
   test_system_entries_report_unimplemented_without_a_system_api();

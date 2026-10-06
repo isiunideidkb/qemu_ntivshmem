@@ -27,13 +27,21 @@ static void bind_and_publish(char hello_message, char host_cap_mask, unsigned in
 /* --- the seam itself --- */
 
 static void test_the_seam_drives_the_protocol(void) {
+  /* the host has already raised the Gate, which by the protocol's timing is the
+     normal case: the client must reach its verdict without waiting at all */
   bind_and_publish(1, 0, SPACE_LEN);
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
-
   int rc = rpc_client_run_hello_handshake_system(&hh, space);
-
   CHECK(rc == 1, "seam: a client entry runs against a fabricated host and returns a verdict");
-  CHECK(g_waiter_calls >= 1, "seam: the injected waiter was actually used");
+  CHECK(g_waiter_calls == 0, "seam: with the Gate already up the client never parks");
+
+  /* the host raises it late: now the injected waiter carries the wait */
+  bind_and_publish(0, 0, SPACE_LEN);
+  harness_raise_gate_on(2);
+  rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
+  rc = rpc_client_run_hello_handshake_system(&hh, space);
+  CHECK(g_waiter_calls >= 2, "seam: with the Gate down the injected waiter was used");
+  CHECK(rc == 1, "seam: and the handshake completed once the Gate came up");
 }
 
 /* --- acceptance criteria --- */
@@ -144,8 +152,9 @@ static void test_a_rejection_still_lowers_the_gate(void) {
 
 static void run_without_a_waiter(void) {
   harness_drop_waiter();
+  /* the Gate must be DOWN for this to prove anything: with it already up the
+     client has nothing to wait for and no waiter is needed */
   memset(space, 0, SPACE_LEN);
-  space[0] = 1;
   rpc_client_handshake_init(&hh, false, false, SPACE_LEN);
   rpc_client_run_hello_handshake_system(&hh, space);
 }

@@ -117,19 +117,20 @@ static void test_an_idle_table_services_nothing(void) {
 }
 
 /*
-  The run loop never returns for a live table, so an empty one is the only case
-  where its plain return can be asserted. Running it under an alarm turns a
-  spin into a failure instead of a hung suite.
+  The run loop demands a real table. Running it over one discovery never built is
+  a caller error, so it aborts rather than returning quietly -- a bare return
+  would let the caller believe the loop ran. rpc_client_service_ready_slots, by
+  contrast, is a query and answers 0 for an empty table.
 */
 static void scenario_run_loop_on_an_empty_table(void) {
   build_table(0, nullptr);
   rpc_client_run_dispatch(&dt);
 }
 
-static void test_the_run_loop_returns_on_an_empty_table(void) {
-  int child_failures = harness_run_isolated(scenario_run_loop_on_an_empty_table, 5);
-  CHECK(child_failures == 0,
-        "multi slot: the run loop returns on an empty table rather than spinning");
+static void test_the_run_loop_refuses_an_empty_table(void) {
+  int status = harness_run_isolated(scenario_run_loop_on_an_empty_table, 5);
+  CHECK(status != 0 && status != 126,
+        "multi slot: running the loop over an unbuilt table aborts");
 }
 
 /*
@@ -182,7 +183,7 @@ int main(void) {
   test_a_second_pass_picks_up_what_the_first_missed();
   test_an_empty_table_is_handled();
   test_an_idle_table_services_nothing();
-  test_the_run_loop_returns_on_an_empty_table();
+  test_the_run_loop_refuses_an_empty_table();
   test_the_run_loop_reaches_every_slot();
   return REPORT();
 }
