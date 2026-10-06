@@ -207,7 +207,7 @@ struct [[gnu::packed]] __disp_list {
 typedef struct [[gnu::packed]] _host_dispatch_t {
   struct __disp_list* head;
   struct __disp_list* end; //works only head >= 1 //todo remove this field
-  unsigned int total_length;
+  unsigned int total_length; //same as host_dispatch_t.length
   void* start_addr;
 } host_dispatch_t;
 
@@ -235,6 +235,7 @@ void host_dispatch_init(host_dispatch_t* hdt_out, host_dispatch_handshake_t* hdh
                        host_handshake_t* hht_out, void* addr) {
   assert(hdt_out != nullptr && hdh_out != nullptr && hht_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   unsigned int* length_ptr = (unsigned int*)(&(hht_out->_1_length));
+assert ((*length_ptr) > 0 && ((*length_ptr & (*length_ptr - 1)) == 0),"[ASSERT] wrong param, host_dispatch_t length must be the power of 2") //must be the power of 2  
   memset(hdt_out,0,sizeof(host_dispatch_t));
   hdt_out->total_length = *length_ptr;
   hdt_out->start_addr = addr;
@@ -310,12 +311,9 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
 			       unsigned int len,enum dispatch_type dt) {
   assert(hdt_out != nullptr && hdh_out != nullptr,"{DISAPP-ASSERT} wrong param, nullptr");
   assert(len != 0,"[ASSERT] wrong param, incorrect len");
-  if (host_check_dispatches(hdt_out)) {
-    LOG("[WARN] the length are full,will not append");
-    return;
-  }
-  if (dt == SHM)
+  if (dt == SHM) {
     assert(len == hdh_out->bytes_per_split,"[ASSERT] wrong param, incorrect len");
+  }
   if (dt == HUGE_SHM || dt == FUNC) {
     if(dt == FUNC) {
       assert(df != nullptr,"[ASSERT] incorrect dispatch function, nullptr");
@@ -357,8 +355,8 @@ void host_dispatch_append_node(host_dispatch_t* hdt_out,
 
 void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
                         bool is_umonitor, unsigned int length) {
-  assert(out_ptr != nullptr,"[HANDINIT-ASSERT] wrong param, nullptr");
-  assert ((length) > 0 && ((length & (length - 1)) == 0),"[ASSERT] wrong param, incorrect hello handshake length") //must be the power of 2
+  assert(out_ptr != nullptr,"[ASSERT] wrong param, nullptr");
+  assert ((length) > 0 && ((length & (length - 1)) == 0),"[ASSERT] wrong param, incorrect hello handshake length, must be the power of 2") //must be the power of 2
   memset(out_ptr,0,sizeof(host_handshake_t));
   out_ptr->hello_message = 1;
   if(is_phys && (!is_umonitor))
@@ -367,6 +365,7 @@ void host_handshake_init(host_handshake_t* out_ptr, bool is_phys,
     out_ptr->cap_mask = 00000001;
   if(is_phys && is_umonitor)
     out_ptr->cap_mask = 00000011;
+  //full 0 for default
   unsigned int* length_ptr = (unsigned int*)(&(out_ptr->_1_length));
   *length_ptr = length;
 }
@@ -501,7 +500,7 @@ startup:
     if(node->d_t == HUGE_SHM)
       __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
     LOG("[INFO] found SHM node");
-    return nullptr;
+    return nullptr; //exception, return directly,ignore flag
   }
   goto startup;
 #else
@@ -525,6 +524,7 @@ hello_handshake:
   char* flag_addr = addr;
   char* ret_cap_mask_addr = addr + 1;
   host_handshake_t* dest = addr;
+  assert(hh_out->hello_message == 1,"[ASSERT] incorrect hello message");
   __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
 hello_handshake_startup:
   system_specific_waiter(flag_addr);
@@ -540,7 +540,6 @@ hello_handshake_startup:
     LOG("[WARN] received an error");
     return 0;
   }
-    
   return 1;
 #else
   return -1;
@@ -555,6 +554,7 @@ int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* 
   }
   else { assert(false,"[ASSERT] HAVE NOT IMPLEMENTED YET"); } //no rerurn exit directly
 dispatch_handshake:
+  assert(hdh_out->flag_lowaddr == 1,"[ASSERT] incorrect hello message");
   __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
   char* flag_addr = addr;
   char* errcode_addr = addr + 1;
@@ -627,9 +627,10 @@ system_specific:
 //quickdoc: this is function dispatching every function via bootstrapper,provided by system-specific function,DO NOT CALL host_run_* ! it does not even exist
 void host_run_dispatch_in_threads_system(host_dispatch_t* hd_out) {
 #ifdef __USE_UNIX__
-  assert(hd_out != nullptr,"[ASSERT] wrong param, nullptr");
+  assert(hd_out != nullptr && hd_out->start_addr != nullptr && hd_out->total_length != 0,"[ASSERT] wrong param, nullptr");
   if (hd_out->head == nullptr) {
     LOG("[INFO] dispatch list is empty");
+    return;
   }
   struct __disp_list* cur_node = hd_out->head;
   while(true) {
