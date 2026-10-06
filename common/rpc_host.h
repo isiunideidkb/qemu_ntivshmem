@@ -484,6 +484,8 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system_umonitor(void* _param) {
   char* flag = node->base_addr;
   char* function_code = (node->base_addr) + 1;
   __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);
+  if(node->d_t == HUGE_SHM)
+    __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
 startup:
 //setup the flag
   __atomic_store_n(flag,1,__ATOMIC_RELEASE);
@@ -497,10 +499,7 @@ startup:
     (node->dispatch_function)(node);
   }
   else {
-    if(node->d_t == HUGE_SHM)
-      __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
     LOG("[INFO] found SHM node");
-    return nullptr; //exception, return directly,ignore flag
   }
   goto startup;
 #else
@@ -589,7 +588,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
   struct __disp_list* node = _param;
 #ifdef __USE_WAITPKG__ //except empty calling
   if(is_support_umonitor()) {
-    LOG("[INOF] prefer waitpkg,switching to waitpkg routine");
+    LOG("[INFO] prefer waitpkg,switching to waitpkg routine");
     host_internal_dispatch_runner_system_umonitor(_param);
     return nullptr; //no-return ignore it
   }
@@ -599,6 +598,8 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
   char* function_code = (node->base_addr) + 1;
   __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);  
   __atomic_store_n(flag,1,__ATOMIC_RELEASE);
+  if(node->d_t == HUGE_SHM)
+    __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
   if(system_specific_waiter) {
     goto system_specific;
   }
@@ -616,10 +617,7 @@ system_specific:
     (node->dispatch_function)(node);
   }
   else {
-    if(node->d_t == HUGE_SHM)
-      __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE); //unsigned int
-    LOG("[INFO] found SHM node");
-    return nullptr;
+    LOG("[INFO] skip SHM node");
   }
   goto system_specific;
 }
