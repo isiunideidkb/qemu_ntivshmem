@@ -1,0 +1,8 @@
+# meow-memory: the agent's SQLite memory database plus its WAL/SHM sidecars and
+# session logs. Machine local, written continuously, and never something to
+# share or merge.
+.dsh-meow/
+
+# Compiled test binaries. run-tests.sh builds into a temp dir, but a stray one
+# shouldn't ever land in a commit.
+*.o
