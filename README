@@ -12,3 +12,7 @@ goal of this project:
   clipboard sharing
 
 for further internal information ,email me
+
+
+todo list:
+  remove __atomic_* instrinsics,use Assembly + volatile instead

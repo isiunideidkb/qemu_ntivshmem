@@ -8,8 +8,8 @@
   1. hello_handshake host did not clean(zero-filled back) the space : ok
   2. dispatch_handshake host did not clean(zero-filled back) the space : ok
   3. complete system specific routines : ok
-  4. improves this bullshit "robustness" : 
-  5. fix identifier errors,UB
+  4. improves this bullshit "robustness" : ok
+  5. fix identifier errors,UB : ok
   6. log&assert unificate : ok
   7. atomic builtin signfication check : ok
   8. add some host_dispatch_function table routines : ok
@@ -20,13 +20,14 @@
 #ifndef __GNUC__
 #error "wrong platform"
 #endif
-
 #if __STDC_VERSION__ < 2023L
 #error "wrong stdc version"
 #endif
 
-//todo atomic instrincs check: using __has_attrubute(target) or related builtin
-//see GCC documentation for details
+
+#if !defined(__has_builtin) || !__has_builtin(__atomic_load)
+#error "no atomic intrinsic"
+#endif
 
 
 /* ===== PLATFORM SWITCH ===== */
@@ -485,7 +486,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system_umonitor(void* _param) {
   char* function_code = (node->base_addr) + 1;
   __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);
   if(node->d_t == HUGE_SHM)
-    __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
+    __atomic_store_n((unsigned int*)((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
 startup:
 //setup the flag
   __atomic_store_n(flag,1,__ATOMIC_RELEASE);
@@ -559,7 +560,7 @@ dispatch_handshake:
   char* errcode_addr = addr + 1;
 dispatch_handshake_startup:
   system_specific_waiter(flag_addr);
-  if(__atomic_load_n(flag_addr,__ATOMIC_RELEASE))
+  if(__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
     goto dispatch_handshake_startup;
   char error_code = __atomic_load_n(errcode_addr,__ATOMIC_ACQUIRE);
   host_dispatch_handshake_t _clean_example = {0};
@@ -599,7 +600,7 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
   __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);  
   __atomic_store_n(flag,1,__ATOMIC_RELEASE);
   if(node->d_t == HUGE_SHM)
-    __atomic_store_n(((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
+    __atomic_store_n((unsigned int*)((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
   if(system_specific_waiter) {
     goto system_specific;
   }
