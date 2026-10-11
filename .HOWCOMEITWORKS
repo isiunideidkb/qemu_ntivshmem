@@ -1,5 +1,7 @@
 总而言之,这是一个跨越虚拟机的远程过程调用,尽量实现0拷贝,所有的服务都是基于ivshmem-plain设备的BAR寄存器MMIO地址空间,初始的guest driver是WindowsXP是因为我之前学习过a little(to be honest,it's "little" rather than "a little")WDM Driver。
 ivshmem-plain的具体内容存放在BAR2寄存器,该寄存器是一个64位 的BAR地址 我们需要写入BAR3 为0x00000000,至少来说Windows XP的驱动默认不会对BAR2 BAR3干什么 默认该共享内存也会在低于4G的地址空间下 但是驱动只需要写入开启改设备的MIMO ENABLE bit(MMIO使能位) BAR3我们可以保留 第一步读取 BAR2 获取BAR2的物理地址 并且尝试读取一下BAR3(可选) 断言BAR3必须是0x00000000 然后我们写入BAR2寄存器到0xFFFFFFFF 然后获取masked的BAR2大小 最后重新写入上次读取的BAR2地址即可, 最后重新写回原本的物理地址 (note: 根据实际上的测试 ivshmem-plain的BAR2寄存器早在固件加载之前 改BAR2寄存器就初始化 不可能会是0 所以我们尽管读写就可以了) 最后内存映射就可以了(注意 这必须是WriteBack缓存类型的映射) 最后初始化就可以了
+此外guest driver还实现了ring0的MONITOR指令来提供高性能的等待
+host driver的等待使用的是umonitor/或者QEMU的特定API(待定)
 
 关于cache coherency(缓存一致性):
 RPC是Host主导的 判断client是否会降低到0的方法来代表一个过程请求 在这期间 我们需要保证
