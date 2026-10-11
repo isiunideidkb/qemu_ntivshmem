@@ -1,0 +1,24 @@
+总而言之,这是一个跨越虚拟机的远程过程调用,尽量实现0拷贝,所有的服务都是基于ivshmem-plain设备的BAR寄存器MMIO地址空间,初始的guest driver是WindowsXP是因为我之前学习过a little(to be honest,it's "little" rather than "a little")WDM Driver。
+ivshmem-plain的具体内容存放在BAR2寄存器,该寄存器是一个64位 的BAR地址 我们需要写入BAR3 为0x00000000,至少来说Windows XP的驱动默认不会对BAR2 BAR3干什么 默认该共享内存也会在低于4G的地址空间下 但是驱动只需要写入开启改设备的MIMO ENABLE bit(MMIO使能位) BAR3我们可以保留 第一步读取 BAR2 获取BAR2的物理地址 并且尝试读取一下BAR3(可选) 断言BAR3必须是0x00000000 然后我们写入BAR2寄存器到0xFFFFFFFF 然后获取masked的BAR2大小 最后重新写入上次读取的BAR2地址即可, 最后重新写回原本的物理地址 (note: 根据实际上的测试 ivshmem-plain的BAR2寄存器早在固件加载之前 改BAR2寄存器就初始化 不可能会是0 所以我们尽管读写就可以了) 最后内存映射就可以了(注意 这必须是WriteBack缓存类型的映射) 最后初始化就可以了
+
+关于cache coherency(缓存一致性):
+RPC是Host主导的 判断client是否会降低到0的方法来代表一个过程请求 在这期间 我们需要保证
+考虑使用memory bariier instruction和XCHG的atomic lock指令 来防止读写竞争
+此外 无论是client(guest)还是host都必须保证此缓存的映射为 MmCached(i.e. WriteBack) guest driver需要检查CR0等Control Register来判断WriteBack是否会隐式退化回其他缓存类型导致内存同步问题
+关于 zero-copied:
+ivshmem-plain的本质就是一块shared memory,至少对于大多数
+我想 我在草案(./common/.draft)里面写的很清楚了 但是有一些实现需要说明一下 host返回值 如果对于一些很大的 可以通过overlapped mapping(当然 我对这方面还不是很熟悉 我需要再看一下关于mmap的manpage 不过大体的方案应该是这样) 对于 guest写入大参数 往往会指定一块大共享内存 但是请注意! guest写入只能纯拷贝 所以对于大参数 尽量把地址公开到用户态地址空间然后将写入优先放到该shm地址
+
+关于物理地址0拷贝 我可以通过 cpu_physical_memory_map 来实现,也可以直接将QEMU的memory backend交给我自己创建的shared memory这些都可以,不过 我更加推荐用后者 因为我无法笃定QEMU在映射这块内存的时候一定用了WriteBack cache strategy
+
+关于 async RPC:
+可以尝试延迟或者使用fake return并且通过返回值 顺带一提 返回值是允许直接映射到用户空间的
+关于 性能:
+理论上来说 Linux和QEMU并没有公开一个
+
+这个方案仍然是实验性的 只对Intel的CPU做了适配 如果你用的是AMD 那么我也不知道 至少我看的绝大多数CPU手册都是Intel的
+优化指南
+see also:
+IA32 SDM Volume 3
+IA32 SDM Volume 2
+source code of qemu

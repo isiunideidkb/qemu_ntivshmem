@@ -1,5 +1,7 @@
 //todo add MONITOR/MWAIT support & ioctl
 //todo virtaddr convert userspace_virt_addr to phys_addr ioctl for userspace process with specifying length,NonPaged Required,and lock(or modify) this page to non paged locked
+//todo optimize read BAR register operations,more defensive programming : check the first read of BAR2 is not zero,BAR3 is  zero,check MMIO enable bit
+
 
 
 
