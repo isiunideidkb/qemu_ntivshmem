@@ -103,3 +103,5 @@ monitor_init:
 
 //todo monitor addr with ext
 //todo wait with ext
+//todo CR check to avoid non-WB cache access
+//todo disable split-lock uc-lock see IA32_MEMORY_CTRL MSR and IA32_CORE_CAPABILITIES MSR,Volume 3, Chapter 11.1.2.3
