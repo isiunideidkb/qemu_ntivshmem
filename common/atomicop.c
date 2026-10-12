@@ -104,7 +104,7 @@ bool __myatomic_write(void* volatile _in_addr,
 #elif defined(__i686__)
 		     "movq %[addr],%%eax \n\t"
 		     "movl (%[value_addr]),%%edx \n\t" //load from value_addr
-		     "movl 4(%[value_addr]),%%esi \n\t" //load from value high addr 
+		     "movl 4(%[value_addr]),%%esi \n\t" //load from value high addr  ..
 		     "lock xchg %%edx,(%%eax) \n\t"
 		     "lock xchg %%esi,4(%%eax) \n\t"
 		     "mfence \n\t"
