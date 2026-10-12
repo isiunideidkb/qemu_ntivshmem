@@ -100,8 +100,59 @@ monitor_init:
   __builtin_ia32_mwait (0,0);
 }
 
-
+//todo enable AVX support
 //todo monitor addr with ext
 //todo wait with ext
 //todo CR check to avoid non-WB cache access
-//todo disable split-lock uc-lock see IA32_MEMORY_CTRL MSR and IA32_CORE_CAPABILITIES MSR,Volume 3, Chapter 11.1.2.3
+//ignore: todo disable split-lock uc-lock see IA32_MEMORY_CTRL MSR and IA32_CORE_CAPABILITIES MSR,Volume 3, Chapter 11.1.2.3,these are introducted 6-13,at least, Windows XP will not set this MSR
+
+void CorrectCache() {
+  CusLog("=====Correct Cache=====");
+  unsigned int old_cr0;
+  __asm__ volatile ("movl %%cr0,%[out_parm] \n\t" : [out_parm]"=rm"(old_cr0) : :);
+  unsigned int _tmp = old_cr0 << (32 - (29 + 1)); //不包括0啊! 还要额外加一
+  unsigned int is_nw = _tmp >> (32 - 1);
+  _tmp = old_cr0 << (32 - (30+1));
+  unsigned int is_cd = _tmp >> (32 - 1);
+  unsigned int new_cr0 = old_cr0;
+  if(is_nw) {
+    CusLog("[CORRECT] invalid nw bit");
+    new_cr0 -= 0b00100000'00000000'00000000'00000000
+  }
+  if(is_cd) {
+    new_cr0 -= 0b01000000'00000000'00000000'00000000  
+    CusLog("[CORRECT] invalid cd bit");
+  }
+  if(new_cr0 != old_cr0) {
+    __asm__ volatile ("movl %[in_param],%%cr0 \n\t"
+                      "wbinvd \n\t"
+		      :
+		      : [in_param]"rm"(new_cr0)
+		      :);  
+  }
+  return;
+}
+
+void EnableAVX() {
+  //todo
+}
+
+void EnableSSE() {
+  //todo
+}
+
+void EnableSSE2() {
+  //tood
+}
+
+void EnableSSE3() {
+  //todo
+}
+
+void EnableSSE4() {
+  //todo
+}
+
+void EnableMMX() {
+  //todo
+}

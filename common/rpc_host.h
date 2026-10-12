@@ -25,11 +25,6 @@
 #endif
 
 
-#if !defined(__has_builtin) || !__has_builtin(__atomic_load)
-#error "no atomic intrinsic"
-#endif
-
-
 /* ===== PLATFORM SWITCH ===== */
 //clean predefs
 #if defined(__USE_WINDOWS__)
@@ -115,6 +110,7 @@
 #include <stdio.h>
 #include "umonitor_check.h"
 #include <immintrin.h>
+#include "atomicop.h"
 #ifdef __USE_WINDOWS__
 #include <windows.h>
 #endif
@@ -139,6 +135,18 @@
 #error "please remove #include <assert.h>"
 #endif
 #define PRIVATE_FUNC static
+#define WRITE_HELLO_HANDSHAKE(addr,hh_out)   do { \
+                                               __myatomic_write(addr,(void*)(&(hh_out->hello_message)),WRITE_BYTE);	\
+                                               __myatomic_write((void*)(((char*)addr)+1),(void*)(&(hh_out->cap_mask)),WRITE_BYTE); \
+                                               __myatomic_write((void*) (((char*)(addr))+2),(void*)(&(hh_out->_1_length)),WRITE_4BYTE); \
+					     } while(0)
+#define WRITE_DISPATCH_HANDSHAKE(addr,hdh_out) do { \
+					         __myatomic_write(addr,(void*)(&(hdh_out->flag_lowaddr)),WRITE_BYTE); \
+						 __myatomic_write((void*) (((char*)addr)+1),(void*)(&(hdh_out->flag_highaddr)),WRITE_BYTE); \
+						 __myatomic_write((void*) (((char*)addr)+2),(void*)(&(hdh_out->split_number)),WRITE_2BYTE); \
+						 __myatomic_write((void*) (((char*)addr)+4),(void*)(&(hdh_out->bytes_per_split)),WRITE_4BYTE); \
+                                               } while(0)
+                                                  
 
 
 //1byte!
@@ -158,10 +166,8 @@ void set_host_system_specific_waiter(void* target) {
 typedef struct [[gnu::packed]] _host_handshake_t {
   char hello_message;
   char cap_mask;
-  char _1_length;
-  char _2_length;
-  char _3_length;
-  char _4_length;
+  unsigned int _1_length;
+  short _ignoreme_padding;
 } host_handshake_t;
 
 //quickdoc: abstract dispatch handshake memlayout structure, in stage 2
@@ -179,7 +185,7 @@ enum dispatch_type : char {
   FUNC = (char)0x2
 };
 
-struct [[gnu::packed]] __disp_list;
+struct __disp_list;
 typedef void(*dispatch_func_t)(struct __disp_list* self);
 //quickdoc: this is private struct,stores every function info node in RPC protocol,in stage 3
 /*
@@ -197,7 +203,7 @@ struct [[gnu::packed]] function {
 }
 we don't use this layout,use separating atomic_writes from the layouts instead of
 */
-struct [[gnu::packed]] __disp_list {
+struct __disp_list {
   dispatch_func_t dispatch_function; // nullptr if SHM/HUGE_SHM
   unsigned int length; //include flag
   void* base_addr; //include flag
@@ -399,18 +405,20 @@ int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
     return host_run_hello_handshake_system(hh_out,addr);
   }
   assert(hh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
-  host_handshake_t* dest = addr;
-  assert(dest->hello_message == 1,"[ASSERT] incorrect hello message");  
-  __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
+  assert(hh_out->hello_message == 1,"[ASSERT] incorrect hello message");
+  WRITE_HELLO_HANDSHAKE(addr,hh_out);
   //wait client
   char* flag_addr = addr;
+  char flag = 0;
 waiting:  
   _umonitor(flag_addr);
   _umwait(1,0);
-  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
+  __myatomic_read(flag_addr,&flag,READ_BYTE); 
+  if (flag)
     goto waiting;
   char* ret_cap_mask_addr = addr + 1;
-  char ret_cap_mask = __atomic_load_n(ret_cap_mask_addr,__ATOMIC_ACQUIRE);
+  char ret_cap_mask = 0;
+  __myatomic_read(ret_cap_mask_addr,&ret_cap_mask,READ_BYTE);
   //ret_cap_mask  XXXXX_XX which "_" is what i want
   //ret_cap_mask left shift 5(8-3) bit
   //we got _XX00000 which "_" is what i want
@@ -420,7 +428,7 @@ waiting:
   char result_client_bit = (tmp_cap_mask >> 7);
   //clean
   host_handshake_t _clean_example = {0};
-  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
+  WRITE_HELLO_HANDSHAKE(addr,_clean_example);
   if (result_client_bit) {
     return 0;
   }
@@ -443,21 +451,22 @@ int host_run_dispatch_handshake_umonitor(host_dispatch_handshake_t* hdh_out,void
     LOG("[WARN] waitpkg ISA is not supported on your CPU,rolling back");
     return host_run_dispatch_handshake_system(hdh_out,addr);
   }
-  host_dispatch_handshake_t* dest = addr;
+  assert(hdh_out->flag_lowaddr == 1,"[ASSERT] incorrect hello message");
+  WRITE_DISPATCH_HANDSHAKE(addr,hdh_out);
   char* flag_addr = addr;
-  char* error_code_addr = addr + 1;
-  assert(dest->flag_lowaddr == 1,"[ASSERT] incorrect hello message");
-  //wait client
-  __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
+  char flag = 0;
 waiting:  
   _umonitor(flag_addr);
   _umwait(1,0);
-  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
+  __myatomic_read(flag_addr,&flag,READ_BYTE);
+  if (flag)
     goto waiting;
-  char error_code = __atomic_load_n(error_code_addr,__ATOMIC_ACQUIRE);
+  char* error_code_addr = addr + 1;
+  char error_code = 0;    
+  __myatomic_read(error_code_addr,&error_code,READ_BYTE);
   //clean aftar all memory accessing
   host_dispatch_handshake_t _clean_example = {0};
-  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
+  WRITE_DISPATCH_HANDSHAKE(addr,_clean_example);  
   if (error_code == 0x0) {
     return 1;
   }
@@ -482,18 +491,21 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system_umonitor(void* _param) {
 //note: actually we need no pthread_exit & return,this thread is expected as never_return
   struct __disp_list* node = _param;
   assert(node != nullptr,"[ASSERT] wrong param, nullptr");
-  char* flag = node->base_addr;
   char* function_code = (node->base_addr) + 1;
-  __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);
+  __myatomic_write(function_code,(void*)(&(node->d_t)),WRITE_BYTE);
   if(node->d_t == HUGE_SHM)
-    __atomic_store_n((unsigned int*)((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
+    __myatomic_write((void*) (((char*)(node->base_addr)) +2),(void*) (&(node->length)),WRITE_4BYTE);
+  char _expected_flag = 1;
+  char* flag_addr = node->base_addr;  
+  char _flag = 0;
 startup:
 //setup the flag
-  __atomic_store_n(flag,1,__ATOMIC_RELEASE);
+  __myatomic_write(flag_addr,&_expected_flag,WRITE_BYTE);
   //wait for client pull down the flag
   _umonitor(flag);
   _umwait(0,0);
-  if(__atomic_load_n(flag,__ATOMIC_ACQUIRE))
+  __myatomic_read(flag_addr,(void*)(&_flag),READ_BYTE);
+  if(_flag)
     goto startup;
   //if client pull down
   if(node->d_t == FUNC) {
