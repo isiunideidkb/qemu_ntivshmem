@@ -163,19 +163,19 @@ void set_host_system_specific_waiter(void* target) {
 
 /* ========== protocol abstraction routine ========== */
 //quickdoc: abstract hello handshake memlayout structure, in stage 1
-typedef struct [[gnu::packed]] _host_handshake_t {
-  char hello_message;
-  char cap_mask;
-  unsigned int _1_length;
-  short _ignoreme_padding;
+typedef struct _host_handshake_t {
+  alignas(1) char hello_message;
+  alignas(1) char cap_mask;
+  alignas(4) unsigned int _1_length;
+  alignas(2) short _ignoreme_padding;
 } host_handshake_t;
 
 //quickdoc: abstract dispatch handshake memlayout structure, in stage 2
-typedef struct [[gnu::packed]] _host_dispatch_handshake_t {
-  char flag_lowaddr;
-  char flag_highaddr;
-  unsigned short split_number;
-  unsigned int bytes_per_split;
+typedef struct _host_dispatch_handshake_t {
+  alignas(1) char flag_lowaddr;
+  alignas(1) char flag_highaddr;
+  alignas(2) unsigned short split_number;
+  alignas(4) unsigned int bytes_per_split;
 } host_dispatch_handshake_t;
 
 //quickdoc: dispatch_type used by dispatch handshake protocol
@@ -211,7 +211,7 @@ struct __disp_list {
   struct __disp_list* next; //represent as linked list which node represents single function,linear layout,
 };
 //quickdoc: this structure represents all concrete function in RPC protocol,in stage 3
-typedef struct [[gnu::packed]] _host_dispatch_t {
+typedef struct  _host_dispatch_t {
   struct __disp_list* head;
   struct __disp_list* end; //works only head >= 1 //todo remove this field
   unsigned int total_length; //same as host_dispatch_t.length
@@ -406,14 +406,15 @@ int host_run_hello_handshake_umonitor(host_handshake_t* hh_out,void* addr) {
   }
   assert(hh_out != nullptr && addr != nullptr,"[ASSERT] wrong param, nullptr");
   assert(hh_out->hello_message == 1,"[ASSERT] incorrect hello message");
-  WRITE_HELLO_HANDSHAKE(addr,hh_out);
+  host_dispatch_t* dest = addr;
+  WRITE_HELLO_HANDSHAKE(dest,hh_out);
   //wait client
   char* flag_addr = addr;
   char flag = 0;
 waiting:  
   _umonitor(flag_addr);
   _umwait(1,0);
-  __myatomic_read(flag_addr,&flag,READ_BYTE); 
+  __myatomic_read(flag_addr,&flag,READ_BYTE);  
   if (flag)
     goto waiting;
   char* ret_cap_mask_addr = addr + 1;
@@ -428,7 +429,8 @@ waiting:
   char result_client_bit = (tmp_cap_mask >> 7);
   //clean
   host_handshake_t _clean_example = {0};
-  WRITE_HELLO_HANDSHAKE(addr,_clean_example);
+  host_handshake_t* clean_ptr = &_cleam_example;
+  WRITE_HELLO_HANDSHAKE(dest,clean_ptr);
   if (result_client_bit) {
     return 0;
   }
@@ -464,9 +466,10 @@ waiting:
   char* error_code_addr = addr + 1;
   char error_code = 0;    
   __myatomic_read(error_code_addr,&error_code,READ_BYTE);
-  //clean aftar all memory accessing
+  //clean aftar all memory accessing  
   host_dispatch_handshake_t _clean_example = {0};
-  WRITE_DISPATCH_HANDSHAKE(addr,_clean_example);  
+  host_dispatch_handshake_t* clean_ptr = {0};
+  WRITE_DISPATCH_HANDSHAKE(addr,clean_ptr);
   if (error_code == 0x0) {
     return 1;
   }
@@ -534,18 +537,22 @@ int host_run_hello_handshake_system(host_handshake_t* hh_out,void* addr) {
   else { assert(false,"[ASSERT] not supported yet"); } //no rerurn exit directly
 hello_handshake:  
   char* flag_addr = addr;
+  char flag;
   char* ret_cap_mask_addr = addr + 1;
+  char cap_mask; 
   host_handshake_t* dest = addr;
   assert(hh_out->hello_message == 1,"[ASSERT] incorrect hello message");
-  __atomic_store(dest,hh_out,__ATOMIC_RELEASE);
+  WRITE_HELLO_HANDSHAKE(dest,hh_out);
 hello_handshake_startup:
   system_specific_waiter(flag_addr);
-  if (__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE)) {
+  __myatomic_read(flag_addr,&flag,READ_BYTE);
+  if (flag) {
     goto hello_handshake_startup;
   }
-  char cap_mask = __atomic_load_n(ret_cap_mask_addr,__ATOMIC_ACQUIRE);
+  __myatomic_read(ret_cap_mask_addr,&cap_mask,READ_BYTE);
   host_handshake_t _clean_example = {0};
-  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
+  host_handshake_t* clean_ptr = &_clean_example;
+  WRITE_HELLO_HANDSHAKE(dest,clean_ptr);
   char tmp_cap_mask = (cap_mask << 5);
   char client_bit = (tmp_cap_mask >> 7);
   if(client_bit) {
@@ -567,21 +574,25 @@ int host_run_dispatch_handshake_system(host_dispatch_handshake_t* hdh_out,void* 
   else { assert(false,"[ASSERT] HAVE NOT IMPLEMENTED YET"); } //no rerurn exit directly
 dispatch_handshake:
   assert(hdh_out->flag_lowaddr == 1,"[ASSERT] incorrect hello message");
-  __atomic_store(dest,hdh_out,__ATOMIC_RELEASE);
+  WRITE_DISPATCH_HANDSHAKE(dest,hdh_out);
   char* flag_addr = addr;
+  char flag;
   char* errcode_addr = addr + 1;
+  char errcode;
 dispatch_handshake_startup:
   system_specific_waiter(flag_addr);
-  if(__atomic_load_n(flag_addr,__ATOMIC_ACQUIRE))
+  __myatomic_read(flag_addr,&flag,READ_BYTE);
+  if(flag)
     goto dispatch_handshake_startup;
-  char error_code = __atomic_load_n(errcode_addr,__ATOMIC_ACQUIRE);
+  __myatomic_read(errcode_addr,&errcode,READ_BYTE);
   host_dispatch_handshake_t _clean_example = {0};
-  __atomic_store(dest,&_clean_example,__ATOMIC_RELEASE);
-  if(error_code == 0x0)
+  host_dispatch_handshake_t* clean_ptr = {0};
+  WRITE_DISPATCH_HANDSHAKE(addr,clean_ptr);  
+  if(errcode == 0x0)
     return 1;
-  else if(error_code == 0x1)
+  else if(errcode == 0x1)
     return 0;
-  else if(error_code == 0x2)
+  else if(errcode == 0x2)
     return -1;
   else {
     LOG("[WARN] received a reserved error code");
@@ -607,12 +618,14 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
   }
 #endif
   assert(node != nullptr,"[ASSERT] wrong param,nullptr")
-  char* flag = node->base_addr;
-  char* function_code = (node->base_addr) + 1;
-  __atomic_store_n(function_code,node->d_t,__ATOMIC_RELEASE);  
-  __atomic_store_n(flag,1,__ATOMIC_RELEASE);
+  char* flag_addr = node->base_addr;
+  char _expected_flag = 1;
+  char flag;
+  char* function_code_addr = (node->base_addr) + 1;
+  __myatomic_write(function_code_addr,(void*)(&(node->d_t)),WRITE_BYTE);
+  __myatomic_write(flag_addr,&_expected_flag,WRITE_BYTE);
   if(node->d_t == HUGE_SHM)
-    __atomic_store_n((unsigned int*)((node->base_addr) + 2),node->length,__ATOMIC_RELEASE);
+    __myatomic_write((void*) (((char*)&(node->base_addr))+2),(void*)(&(node->length)),WRITE_4BYTE);
   if(system_specific_waiter) {
     goto system_specific;
   }
@@ -622,9 +635,10 @@ PRIVATE_FUNC void* host_internal_dispatch_runner_system(void* _param) {
   
   return nullptr;
 system_specific:
-  __atomic_store_n(flag,1,__ATOMIC_RELEASE);
+  __myatomic_write(flag_addr,&_expected_flag,WRITE_BYTE);
   system_specific_waiter(node->base_addr); //wait
-  if(__atomic_load_n(flag,__ATOMIC_ACQUIRE))
+  __myatomic_read(flag_addr,&flag,READ_BYTE);
+  if(flag)
     goto system_specific;
   if(node->d_t == FUNC) {
     (node->dispatch_function)(node);

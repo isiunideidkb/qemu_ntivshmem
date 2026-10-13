@@ -12,10 +12,34 @@
   but in here,the order can be guarantee to un-interruptible as long as the proram obey the standard RPC protocol
 */
 
+
+#include <stdio.h>
+#include <stdlib.h>
+#ifdef __gnu_linux__
+  #include <execinfo.h>
+#endif
+static void _backtrace_and_exit() {
+#ifdef __gnu_linux__
+  void* stack_ptrs[10];
+  char** strings;
+  int avail_size;
+  avail_size = backtrace(stack_ptrs,10);
+  strings = backtrace_symbols(stack_ptrs,avail_size);
+  if(strings != nullptr) {
+    printf("=====STACK TRACE INFO=====\n");
+    for (int i = 0; i < avail_size; i++)
+      printf("stack NO. %d: %s \n",i,strings[i]);
+  }
+#endif
+  exit(-1);
+}
+
 bool __myatomic_write(void* volatile _in_addr,
                       void* volatile _in_value_addr,
 		      unsigned int number)
 {
+  if((_in_addr == nullptr) || (_in_value_addr == nullptr))
+    goto error;
   void* in_addr = _in_addr;
   register void* in_value_addr = _in_value_addr; //must be a register variable
   switch (number) {
@@ -26,8 +50,8 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%dl,(%%rax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","rax","dl"
 #elif defined(__i686__)
 		     "movq %[addr],%%eax \n\t"
@@ -35,14 +59,15 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%dl,(%%eax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","eax","dl"
 #else
 #error "invalid platform"
                      );
 #endif
                      );
+    return true;
    case 1:
 #ifdef __x86_64__
     __asm__ volatile("movq %[addr],%%rax \n\t"
@@ -50,8 +75,8 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%dx,(%%rax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","rax","dx"
 #elif defined(__i686__)
 		     "movq %[addr],%%eax \n\t"
@@ -59,14 +84,15 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%dx,(%%eax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","eax","dx"
 #else
 #error "invalid platform"
                      );
 #endif
-                     );    
+                     );
+    return true;		     
    case 2:
 #ifdef __x86_64__
     __asm__ volatile("movq %[addr],%%rax \n\t"
@@ -74,8 +100,8 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%edx,(%%rax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","rax","edx"
 #elif defined(__i686__)
 		     "movq %[addr],%%eax \n\t"
@@ -83,14 +109,15 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%edx,(%%eax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     :
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","eax","edx"
 #else
 #error "invalid platform"
                      );
 #endif
-                     );       
+                     );
+    return true;		     
    case 3:
 #ifdef __x86_64__
     __asm__ volatile("movq %[addr],%%rax \n\t"
@@ -98,8 +125,8 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%edx,(%%rax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","rax","rdx"
 #elif defined(__i686__)
 		     "movq %[addr],%%eax \n\t"
@@ -109,17 +136,21 @@ bool __myatomic_write(void* volatile _in_addr,
 		     "lock xchg %%esi,4(%%eax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
-		     : [value_addr]"=r"(in_value_addr)
-		     : [addr]"rm"(in_addr)
+		     : 
+		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","eax","edx","esi"
 #else
 #error "invalid platform"
                      );
 #endif
-                     );          
+                     );
+    return true;		     
    default:
     break;
   }
+error:  
+  printf("[FATAL ERROR] invaild write operation,the program NEED TO FIX THIS BUG\n");
+  _backtrace_and_exit();
   return false;
 }
 
@@ -127,7 +158,12 @@ bool __myatomic_read(void* volatile in_addr,
                      void* volatile out_addr,
                      unsigned int number)
 {
+  if((in_addr == nullptr) || (out_addr == nullptr))
+    goto error;    
   register void* out_ptr = out_addr;
+#ifdef _ENABLE_LOG  
+  printf("[DEBUG] read from %p\n",in_addr);
+#endif    
   switch(number) {
    case 0: {
     //byte
@@ -242,5 +278,8 @@ bool __myatomic_read(void* volatile in_addr,
    default:
     break;
   }
+error:  
+  printf("[FATAL ERROR] invaild write operation,the program NEED TO FIX THIS BUG\n");
+  _backtrace_and_exit();
   return false;
 }
