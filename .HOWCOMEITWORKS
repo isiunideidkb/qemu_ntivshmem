@@ -25,3 +25,11 @@ see also:
 IA32 SDM Volume 3
 IA32 SDM Volume 2
 source code of qemu
+
+
+
+host:
+waitpkg or KVM ioeventfd(rolling back)?
+
+guest:
+waitpkg or MONITOR(using kernel driver wrapper)
