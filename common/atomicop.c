@@ -10,6 +10,12 @@
   
   !!note!! split the high,low and store then respectively,in ordinary concurrency cases are dangerous,because of the store order are interruptible -
   but in here,the order can be guarantee to un-interruptible as long as the proram obey the standard RPC protocol
+
+  why not use GCC atomic intrinsics? emm... actually the GCC atomic intrinsics can not guarantee atomic-ity without OS participation,and gcc aotmic intrinsics will roll-back to software implementation in some cases
+  notes as to read operations for greater than single byte:
+    the low-level assembly implementation are ordinary MOV instructions for READ OP,because MOV instruction of x86 can guarantee atomic in most cases,but there's some exceptions:
+      read op greater than single byte,if the addr is unaligned(see IA32 SDM) or cross cache line,the CPU may not provide atomic-ity for this operation,but the standard memory access sequence of RPC standard still guarantee that the read will not be raced by other processor although the CPU can not provide atoimc-ity for read operation.likewise,i used the "lfence" instruction to preventing the reordering of program as much as possible. but i'm still confused about whether the processor guarantees the operation read out old value
+      see IA32SDM strategy of WB memory caching,memory order,bus locks
 */
 
 #include <stdio.h>
@@ -176,6 +182,9 @@ bool __myatomic_read(void* volatile in_addr,
     return true;
    }
    case 1: {
+#ifdef _ENABLE_LOG
+    //todo mem align check for read op(op byte greater than 1 only)
+#endif   
     //word(double byte)
     __asm__ volatile ("nop \n\t"
 #ifdef __x86_64__
@@ -201,6 +210,9 @@ bool __myatomic_read(void* volatile in_addr,
     return true;    
    }
    case 2: {
+#ifdef _ENABLE_LOG
+    //todo mem align check for read op(op byte greater than 1 only)
+#endif
     //dword(double word)
     __asm__ volatile ("nop \n\t"
 #ifdef __x86_64__
@@ -226,6 +238,9 @@ bool __myatomic_read(void* volatile in_addr,
     return true;   
    }
    case 3: {
+#ifdef _ENABLE_LOG
+    //todo mem alignment check for read op(op byte greater than 1 only)
+#endif   
     //qword(quad word)
     __asm__ volatile ("nop \n\t"
 #ifdef __x86_64__
