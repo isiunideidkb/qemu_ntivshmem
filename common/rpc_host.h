@@ -136,15 +136,15 @@
 #endif
 #define PRIVATE_FUNC static
 #define WRITE_HELLO_HANDSHAKE(addr,hh_out)   do { \
-                                               __myatomic_write(addr,(void*)(&(hh_out->hello_message)),WRITE_BYTE);	\
                                                __myatomic_write((void*)(((char*)addr)+1),(void*)(&(hh_out->cap_mask)),WRITE_BYTE); \
                                                __myatomic_write((void*) (((char*)(addr))+2),(void*)(&(hh_out->_1_length)),WRITE_4BYTE); \
+                                               __myatomic_write(addr,(void*)(&(hh_out->hello_message)),WRITE_BYTE);	\ //write in the last
 					     } while(0)
 #define WRITE_DISPATCH_HANDSHAKE(addr,hdh_out) do { \
-					         __myatomic_write(addr,(void*)(&(hdh_out->flag_lowaddr)),WRITE_BYTE); \
 						 __myatomic_write((void*) (((char*)addr)+1),(void*)(&(hdh_out->flag_highaddr)),WRITE_BYTE); \
 						 __myatomic_write((void*) (((char*)addr)+2),(void*)(&(hdh_out->split_number)),WRITE_2BYTE); \
 						 __myatomic_write((void*) (((char*)addr)+4),(void*)(&(hdh_out->bytes_per_split)),WRITE_4BYTE); \
+					         __myatomic_write(addr,(void*)(&(hdh_out->flag_lowaddr)),WRITE_BYTE); \
                                                } while(0)
                                                   
 
