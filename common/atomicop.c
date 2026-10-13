@@ -12,7 +12,6 @@
   but in here,the order can be guarantee to un-interruptible as long as the proram obey the standard RPC protocol
 */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef __gnu_linux__
@@ -44,106 +43,95 @@ bool __myatomic_write(void* volatile _in_addr,
   register void* in_value_addr = _in_value_addr; //must be a register variable
   switch (number) {
    case 0:
+    __asm__ volatile("nop \n\t"
 #ifdef __x86_64__
-    __asm__ volatile("movq %[addr],%%rax \n\t"
+                     "movq %[addr],%%rax \n\t"
 		     "movb (%[value_addr]),%%dl \n\t" //load from value_addr
 		     "lock xchg %%dl,(%%rax) \n\t"
 		     "mfence \n\t"
 		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","rax","dl"
+		     : "memory","rax","dl");
 #elif defined(__i686__)
-		     "movq %[addr],%%eax \n\t"
+		     "movl %[addr],%%eax \n\t"
 		     "movb (%[value_addr]),%%dl \n\t" //load from value_addr
 		     "lock xchg %%dl,(%%eax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t" 		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","eax","dl"
+		     : "memory","eax","dl");
 #else
 #error "invalid platform"
-                     );
 #endif
-                     );
     return true;
    case 1:
+    __asm__ volatile("nop \n\t"
 #ifdef __x86_64__
-    __asm__ volatile("movq %[addr],%%rax \n\t"
+                     "movq %[addr],%%rax \n\t"
 		     "movw (%[value_addr]),%%dx \n\t" //load from value_addr
 		     "lock xchg %%dx,(%%rax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t" 		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","rax","dx"
+		     : "memory","rax","dx");
 #elif defined(__i686__)
-		     "movq %[addr],%%eax \n\t"
+		     "movl %[addr],%%eax \n\t"
 		     "movw (%[value_addr]),%%dx \n\t" //load from value_addr
 		     "lock xchg %%dx,(%%eax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t"		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","eax","dx"
+		     : "memory","eax","dx");
 #else
 #error "invalid platform"
-                     );
 #endif
-                     );
     return true;		     
    case 2:
+    __asm__ volatile("nop \n\t"
 #ifdef __x86_64__
-    __asm__ volatile("movq %[addr],%%rax \n\t"
+                     "movq %[addr],%%rax \n\t"
 		     "movl (%[value_addr]),%%edx \n\t" //load from value_addr
 		     "lock xchg %%edx,(%%rax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t" 		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","rax","edx"
+		     : "memory","rax","edx");
 #elif defined(__i686__)
-		     "movq %[addr],%%eax \n\t"
+		     "movl %[addr],%%eax \n\t"
 		     "movl (%[value_addr]),%%edx \n\t" //load from value_addr
 		     "lock xchg %%edx,(%%eax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t" 		     //old value is discarded
 		     :
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","eax","edx"
+		     : "memory","eax","edx");
 #else
 #error "invalid platform"
-                     );
 #endif
-                     );
     return true;		     
    case 3:
+    __asm__ volatile("nop \n\t"
 #ifdef __x86_64__
-    __asm__ volatile("movq %[addr],%%rax \n\t"
+                     "movq %[addr],%%rax \n\t"
 		     "movq (%[value_addr]),%%rdx \n\t" //load from value_addr
 		     "lock xchg %%edx,(%%rax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t"		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","rax","rdx"
+		     : "memory","rax","rdx");
 #elif defined(__i686__)
-		     "movq %[addr],%%eax \n\t"
+		     "movl %[addr],%%eax \n\t"
 		     "movl (%[value_addr]),%%edx \n\t" //load from value_addr
 		     "movl 4(%[value_addr]),%%esi \n\t" //load from value high addr  ..
 		     "lock xchg %%edx,(%%eax) \n\t"
 		     "lock xchg %%esi,4(%%eax) \n\t"
-		     "mfence \n\t"
-		     //old value is discarded
+		     "mfence \n\t" 		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","eax","edx","esi"
+		     : "memory","eax","edx","esi");
 #else
 #error "invalid platform"
-                     );
 #endif
-                     );
     return true;		     
    default:
     break;
@@ -161,9 +149,6 @@ bool __myatomic_read(void* volatile in_addr,
   if((in_addr == nullptr) || (out_addr == nullptr))
     goto error;    
   register void* out_ptr = out_addr;
-#ifdef _ENABLE_LOG  
-  printf("[DEBUG] read from %p\n",in_addr);
-#endif    
   switch(number) {
    case 0: {
     //byte
@@ -173,22 +158,20 @@ bool __myatomic_read(void* volatile in_addr,
 		      "movb (%%rax),%%dl \n\t"
 		      "lfence \n\t"		      
 		      "movb %%dl,(%[out_ptr]) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","rax","dl"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","rax","dl");
 #elif defined(__i686__)
                       "movl %[addr],%%eax \n\t"
 		      "movb (%%eax),%%dl \n\t"
 		      "lfence \n\t"		      
-		      "movb %%dl,(%out_ptr) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","eax","dl"
+		      "movb %%dl,(%[out_ptr]) \n\t"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","eax","dl");
 #else
-                      );
 #error "invalid platform"
 #endif
-                      );
     //byte end
     return true;
    }
@@ -200,22 +183,20 @@ bool __myatomic_read(void* volatile in_addr,
 		      "movw (%%rax),%%dx \n\t"
 		      "lfence \n\t"		      
 		      "movw %%dx,(%[out_ptr]) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","rax","dx"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","rax","dx");
 #elif defined(__i686__)
                       "movl %[addr],%%eax \n\t"
 		      "movw (%%eax),%%dx \n\t"
 		      "lfence \n\t"		      
-		      "movw %%dx,(%out_ptr) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","eax","dx"
+		      "movw %%dx,(%[out_ptr]) \n\t"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","eax","dx");
 #else
-                      );
 #error "invalid platform"
 #endif
-                      );
     //word end
     return true;    
    }
@@ -227,22 +208,20 @@ bool __myatomic_read(void* volatile in_addr,
 		      "movl (%%rax),%%edx \n\t"
 		      "lfence \n\t"
 		      "movl %%edx,(%[out_ptr]) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","rax","edx"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","rax","edx");
 #elif defined(__i686__)
                       "movl %[addr],%%eax \n\t"
 		      "movl (%%eax),%%edx \n\t"
 		      "lfence \n\t"		      
-		      "movl %%edx,(%out_ptr) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","eax","edx"
+		      "movl %%edx,(%[out_ptr]) \n\t"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","eax","edx");
 #else
-                      );
 #error "invalid platform"
 #endif
-                      );
     //dword end
     return true;   
    }
@@ -254,9 +233,9 @@ bool __myatomic_read(void* volatile in_addr,
 		      "movq (%%rax),%%rdx \n\t"
 		      "lfence \n\t"		      
 		      "movq %%rdx,(%[out_ptr]) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","rax","rdx"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","rax","rdx");
 #elif defined(__i686__)
                       "movl %[addr],%%eax \n\t"
 		      "movl (%%eax),%%edx \n\t" //low addr
@@ -264,14 +243,12 @@ bool __myatomic_read(void* volatile in_addr,
 		      "lfence \n\t"
 		      "movl %%edx,(%[out_ptr]) \n\t"
 		      "movl %%esi,4(%[out_ptr]) \n\t"
-		      : [out_ptr]"=r"(out_ptr)
-		      : [addr]"rm"(in_addr)
-		      : "memory","eax","edx", "esi"
+		      : 
+		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
+		      : "memory","eax","edx", "esi");
 #else
-                      );
 #error "invalid platform"
 #endif
-                      );
     //qword end
     return true;       
    }

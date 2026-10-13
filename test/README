@@ -1,2 +1,2 @@
- cc -D_ENABLE_LOG -g -std=c23 -Werror -I/path/to/root ./<name>.c /path/to/root/common/atomicop.c
+just tests
 
