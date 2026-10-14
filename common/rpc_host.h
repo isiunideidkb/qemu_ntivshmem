@@ -14,8 +14,9 @@
   7. atomic builtin signfication check : ok
   8. add some host_dispatch_function table routines : ok
   9. routines for standard revision
-  9.1. revision patch for host_dispatch_handshake_t  host_handshake_t routines,param check,align check
-  9.2. revision patch for host_run_* addr align check
+  9.1. revision patch for host_dispatch_handshake_t  host_handshake_t
+  routines,param check,align check 9.2. revision patch for host_run_* addr align
+  check
   10. auto management routine starts with host_mgn_*
 */
 
@@ -170,7 +171,7 @@
     __myatomic_write(addr, (void*)(&(hdh_out->flag_lowaddr)), WRITE_BYTE); \
   } while (0);
 
-  // 1byte!
+// 1byte!
 typedef void (*ssw_t)(void* addr);
 // quickdoc: system_specific_waiter used by host_run_*_system routines,if this
 // variable is not null,system_specific_waiter is prefered this waiter receives
@@ -184,33 +185,36 @@ void set_host_system_specific_waiter(void* target) {
 
 /* ========== protocol abstraction routine ========== */
 // quickdoc: abstract hello handshake memlayout structure, in stage 1
-typedef alignas(4) struct _host_handshake_t {
+typedef struct _host_handshake_t {
   union {
-    alignas(4) struct {
+    struct {
       char hello_message;
       char _ignore_me;
       char cap_mask;
-      char _ignore_me2;     
-    };
+      char _ignore_me2;
+    } __attribute__((aligned(4)));
     unsigned int _placeholder;
   };
   unsigned int _1_length;
-} host_handshake_t;
+} __attribute__((aligned(4))) host_handshake_t;
 
 // quickdoc: abstract dispatch handshake memlayout structure, in stage 2
-typedef alignas(4) struct _host_dispatch_handshake_t {
+typedef struct _host_dispatch_handshake_t {
   union {
-    alignas(2) struct {
+    struct __attribute__((aligned(2))) {
       union {
-        struct alignas(1) { char flag_lowaddr; char flag_highaddr; };
-	unsigned short _placeholder;
+        struct __attribute__((aligned(1))) {
+          char flag_lowaddr;
+          char flag_highaddr;
+        };
+        unsigned short _placeholder;
       };
       unsigned short split_number;
     };
     unsigned int _placeholder2;
   };
   unsigned int bytes_per_split;
-} host_dispatch_handshake_t;
+} __attribute__((aligned(4))) host_dispatch_handshake_t;
 
 // quickdoc: dispatch_type used by dispatch handshake protocol
 enum dispatch_type : char {
