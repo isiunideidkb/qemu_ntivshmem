@@ -1,4 +1,5 @@
 /*
+  cross platform OS independent atomic utility
   read: write back memory is required,using memory bariier to guarantee read operation will not-
   reordered before last write operation
 
@@ -16,6 +17,12 @@
     the low-level assembly implementation are ordinary MOV instructions for READ OP,because MOV instruction of x86 can guarantee atomic in most cases,but there's some exceptions:
       read op greater than single byte,if the addr is unaligned(see IA32 SDM) or cross cache line,the CPU may not provide atomic-ity for this operation,but the standard memory access sequence of RPC standard still guarantee that the read will not be raced by other processor although the CPU can not provide atoimc-ity for read operation.likewise,i used the "lfence" instruction to preventing the reordering of program as much as possible. but i'm still confused about whether the processor guarantees the operation read out old value
       see IA32SDM strategy of WB memory caching,memory order,bus locks
+
+
+  macro options:
+  _ENABLE_LOG : enables log for read option, recommended
+  _USE_CMPXCHG: use cmpxchg for global atomic operation, enabled by default
+  _USE_MOV: use mov for read for global atomic operation
 */
 
 #include <stdio.h>
@@ -23,6 +30,15 @@
 #ifdef __gnu_linux__
   #include <execinfo.h>
 #endif
+
+#if !defined(_USE_MOV) && !defined(_USE_CMPXCHG)
+#define _USE_CMPXCHG
+#endif
+
+#ifndef CACHE_LINE_SIZE
+#define CACHE_LINE_SIZE 64
+#endif
+
 static void _backtrace_and_exit() {
 #ifdef __gnu_linux__
   void* stack_ptrs[10];
@@ -45,8 +61,13 @@ bool __myatomic_write(void* volatile _in_addr,
 {
   if((_in_addr == nullptr) || (_in_value_addr == nullptr))
     goto error;
-  void* in_addr = _in_addr;
+  register void* in_addr = _in_addr;
   register void* in_value_addr = _in_value_addr; //must be a register variable
+  __asm__ volatile ("prefetcht0 (%[in_value_addr]) \n\t"
+                    "prefetcht0 (%[in_addr]) \n\t"
+		    :
+		    : [in_addr]"r"(in_addr),[in_value_addr]"r"(in_addr)
+		    :);
   switch (number) {
    case 0:
     __asm__ volatile("nop \n\t"
@@ -120,21 +141,35 @@ bool __myatomic_write(void* volatile _in_addr,
 #ifdef __x86_64__
                      "movq %[addr],%%rax \n\t"
 		     "movq (%[value_addr]),%%rdx \n\t" //load from value_addr
-		     "lock xchg %%edx,(%%rax) \n\t"
+		     "lock xchg %%rdx,(%%rax) \n\t"
 		     "mfence \n\t"		     //old value is discarded
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
 		     : "memory","rax","rdx");
 #elif defined(__i686__)
-		     "movl %[addr],%%eax \n\t"
-		     "movl (%[value_addr]),%%edx \n\t" //load from value_addr
-		     "movl 4(%[value_addr]),%%esi \n\t" //load from value high addr  ..
-		     "lock xchg %%edx,(%%eax) \n\t"
-		     "lock xchg %%esi,4(%%eax) \n\t"
-		     "mfence \n\t" 		     //old value is discarded
+		     "movl %[addr],%%esi \n\t"
+		     "movl %[value_addr],%%edi \n\t"
+                     "push %%eax \n\t"
+		     "push %%ebx \n\t"
+		     "push %%ecx \n\t"
+		     "push %%edx \n\t"
+		     "movl $0,%%eax \n\t"
+		     "movl (%%edi),%%ebx \n\t"
+		     "movl 4(%%edi),%%ecx \n\t"
+		     "movl $0,%%edx \n\t"
+		     "0: \n\t"		     
+		     "lock cmpxchg8b (%%esi) \n\t"
+		     "mfence \n\t"
+                     "jz 1f \n\t"  //if euqal directly pass,if not just retry
+		     "jmp 0b \n\t"
+                     "1: \n\t"  //if equal directly write
+		     "pop %%edx \n\t"
+		     "pop %%ecx \n\t"
+		     "pop %%ebx \n\t"
+		     "pop %%eax \n\t"
 		     : 
 		     : [addr]"rm"(in_addr),[value_addr]"r"(in_value_addr)
-		     : "memory","eax","edx","esi");
+		     : "memory","esi","edi");
 #else
 #error "invalid platform"
 #endif
@@ -152,9 +187,16 @@ bool __myatomic_read(void* volatile in_addr,
                      void* volatile out_addr,
                      unsigned int number)
 {
+//todo CMPXCHG for read instead of MOV
   if((in_addr == nullptr) || (out_addr == nullptr))
-    goto error;    
+    goto error;
+    
   register void* out_ptr = out_addr;
+  __asm__ volatile ("prefetcht0 (%[in_value_addr]) \n\t"
+                    "prefetcht0 (%[in_addr]) \n\t"
+		    :
+		    : [in_addr]"r"(in_addr),[in_value_addr]"r"(out_ptr)
+		    :);		    
   switch(number) {
    case 0: {
     //byte
@@ -183,7 +225,11 @@ bool __myatomic_read(void* volatile in_addr,
    }
    case 1: {
 #ifdef _ENABLE_LOG
-    //todo mem align check for read op(op byte greater than 1 only)
+    bool is_in = (((unsigned long)in_addr & (64 - 1)) + 2) > CACHE_LINE_SIZE;
+    bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 2) > CACHE_LINE_SIZE;
+    if(is_in && is_out) {
+      printf("[WARN] cross cache line access,performance & program correctness may be affacted\n");
+    }
 #endif   
     //word(double byte)
     __asm__ volatile ("nop \n\t"
@@ -211,8 +257,12 @@ bool __myatomic_read(void* volatile in_addr,
    }
    case 2: {
 #ifdef _ENABLE_LOG
-    //todo mem align check for read op(op byte greater than 1 only)
-#endif
+    bool is_in = (((unsigned long)in_addr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
+    bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
+    if(is_in && is_out) {
+      printf("[WARN] cross cache line access,performance & program correctness may be affacted\n");
+    }
+#endif   
     //dword(double word)
     __asm__ volatile ("nop \n\t"
 #ifdef __x86_64__
@@ -238,8 +288,12 @@ bool __myatomic_read(void* volatile in_addr,
     return true;   
    }
    case 3: {
-#ifdef _ENABLE_LOG
-    //todo mem alignment check for read op(op byte greater than 1 only)
+#if defined(_ENABLE_LOG) && !defined(__i686__)
+    bool is_in = (((unsigned long)in_addr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
+    bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
+    if(is_in && is_out) {
+      printf("[WARN] cross cache line access,performance & program correctness may be affacted\n");
+    }
 #endif   
     //qword(quad word)
     __asm__ volatile ("nop \n\t"
@@ -252,15 +306,27 @@ bool __myatomic_read(void* volatile in_addr,
 		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
 		      : "memory","rax","rdx");
 #elif defined(__i686__)
-                      "movl %[addr],%%eax \n\t"
-		      "movl (%%eax),%%edx \n\t" //low addr
-		      "movl 4(%%eax),%%esi \n\t" //high addr
-		      "lfence \n\t"
-		      "movl %%edx,(%[out_ptr]) \n\t"
-		      "movl %%esi,4(%[out_ptr]) \n\t"
-		      : 
-		      : [addr]"rm"(in_addr),[out_ptr]"r"(out_ptr)
-		      : "memory","eax","edx", "esi");
+		     "movl %[addr],%%esi \n\t"
+		     "movl %[out_ptr],%%edi \n\t" //avoid out_ptr was modified by the context
+                     "push %%eax \n\t"
+		     "push %%ebx \n\t"
+		     "push %%ecx \n\t"
+		     "push %%edx \n\t"
+		     "movl $0,%%eax \n\t"
+		     "movl $0,%%ebx \n\t"
+		     "movl $0,%%ecx \n\t"
+		     "movl $0,%%edx \n\t"
+		     "lock cmpxchg8b (%%esi) \n\t"
+		     "mfence \n\t"
+		     "movl %%eax,(%%edi) \n\t" //low 4byte
+		     "movl %%edx,4(%%edi) \n\t" //high 4byte
+		     "pop %%edx \n\t"
+		     "pop %%ecx \n\t"
+		     "pop %%ebx \n\t"
+		     "pop %%eax \n\t"
+		     : 
+		     : [addr]"rm"(in_addr),[out_ptr]"rm"(out_ptr)
+		     : "memory","esi","edi");
 #else
 #error "invalid platform"
 #endif
