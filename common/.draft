@@ -12,20 +12,24 @@ requires length range [32MB,4GB]
 [1] initialize
 
 data Addr Space
-<2byte ushort for Hello> <4byte address length>
+<double word,ushort,4byte for Hello> <4byte address length>
 LowAddr <-> HighAddr
 ---All Zero Filled---
 
 <address length> means the whole length of addr space, not include 0!
 
 which in Hello:
-Low 1byte HelloMessage
-High 1byte capability mask
+1st word Low 1byte HelloMessage
+1st word High 1byte padding for alignment
+
+2st word Low 1byte Low8bitAddr pcapability mask
   which in capability mask
   bit0: does it suports UMONITOR extension   1 yes 0 no
   bit1: does it supports PhysAddr passthrough 1 yes 0 no
   bit2: client error return bit,host is expected to set the bit as 0
   bit3-7: reserved
+2st word High 1byte padding for alignment
+
 //note 4byte address length is a 4byte unsigned int
 host init
 host send the a proper message to client
@@ -49,7 +53,7 @@ LowAddr <-> HighAddr
 ---All Zero Filled---
 
 requires <split number> * <bytes per split> == <length>
-
+revision: requires: (<bytes per split> % 4) == 0
 note: the max vlaue of split number is 65535 unsigned int, requires <split number> ge(>=) 1
 note: the bytes per split is 4byte unsigned int, requires the <bytes per split> must be the power of 2 and greater|equals than 2MB
 which in 2byte short for Flag:
@@ -100,8 +104,9 @@ LowAddr <-> HighAddr
 which in the <huge SHM Flag>
   Low 1byte Flag reserved DONOT READ&WRITE 0x1 for constant
   High 1byte Flag READONLY 0x0 for constant
-requires <huge SHM Flag> + <huge SHM size> +<huge SHM body> = <any_pos_integer> * <bytes per split>
+requires <huge SHM Flag> + <huge SHM size> +<huge SHM body> = <any_unsign_integer> * <bytes per split>
 requires value of <SHM size> == <huge SHM Flag> + <if exists huge SHM size> + <huge SHM body>
+revision: requiers (<SHM size> % 4) == 0
 NOTE: make the SHM space inhabits on the tail space of <data> as mush as possible,but it's not a contraint
 
 the SHM
@@ -131,8 +136,10 @@ LowAddr <-> HighAddr
 ---All Zero Filled---
 
 <which in rpc flag>
-LowAddr call Flag
-HighAddr reserved for constant 0x2
+1nd byte LowAddr call Flag
+1nd byte HighAddr padded for alignment
+2nd LowAddr reserved for constant 0x2
+2nd byte HighAddr padded for alignment
 
 <which in rpc body>
   <parameters> <result>
@@ -155,5 +162,7 @@ concrete rpc procedure similar to the before steps:
 
 rpcs are anonymous,the concrete steps also depends on the conventions
 
-
 one last requirements <add all functions include flags&sizes> == <length>
+
+
+revision: every write&read operation in this area,must align as 4 byte

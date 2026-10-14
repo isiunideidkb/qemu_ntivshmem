@@ -13,6 +13,10 @@
   6. log&assert unificate : ok
   7. atomic builtin signfication check : ok
   8. add some host_dispatch_function table routines : ok
+  9. routines for standard revision
+  9.1. revision patch for host_dispatch_handshake_t  host_handshake_t routines,param check,align check
+  9.2. revision patch for host_run_* addr align check
+  10. auto management routine starts with host_mgn_*
 */
 
 /* ===== PLATFORM CHECK ===== */
@@ -154,9 +158,7 @@
     __myatomic_write((void*)(((char*)(addr)) + 2),                             \
                      (void*)(&(hh_out->_1_length)), WRITE_4BYTE);              \
     __myatomic_write(addr, (void*)(&(hh_out->hello_message)), WRITE_BYTE);     \
-  \  //write in the last
-}
-while (0)
+  } while (0);
 #define WRITE_DISPATCH_HANDSHAKE(addr, hdh_out)                            \
   do {                                                                     \
     __myatomic_write((void*)(((char*)addr) + 1),                           \
@@ -166,10 +168,10 @@ while (0)
     __myatomic_write((void*)(((char*)addr) + 4),                           \
                      (void*)(&(hdh_out->bytes_per_split)), WRITE_4BYTE);   \
     __myatomic_write(addr, (void*)(&(hdh_out->flag_lowaddr)), WRITE_BYTE); \
-  } while (0)
+  } while (0);
 
   // 1byte!
-  typedef void (*ssw_t)(void* addr);
+typedef void (*ssw_t)(void* addr);
 // quickdoc: system_specific_waiter used by host_run_*_system routines,if this
 // variable is not null,system_specific_waiter is prefered this waiter receives
 // a addr,listens the modification in 1byte region this variable is private
@@ -182,19 +184,32 @@ void set_host_system_specific_waiter(void* target) {
 
 /* ========== protocol abstraction routine ========== */
 // quickdoc: abstract hello handshake memlayout structure, in stage 1
-typedef struct _host_handshake_t {
-  alignas(1) char hello_message;
-  alignas(1) char cap_mask;
-  alignas(4) unsigned int _1_length;
-  alignas(2) short _ignoreme_padding;
+typedef alignas(4) struct _host_handshake_t {
+  union {
+    alignas(4) struct {
+      char hello_message;
+      char _ignore_me;
+      char cap_mask;
+      char _ignore_me2;     
+    };
+    unsigned int _placeholder;
+  };
+  unsigned int _1_length;
 } host_handshake_t;
 
 // quickdoc: abstract dispatch handshake memlayout structure, in stage 2
-typedef struct _host_dispatch_handshake_t {
-  alignas(1) char flag_lowaddr;
-  alignas(1) char flag_highaddr;
-  alignas(2) unsigned short split_number;
-  alignas(4) unsigned int bytes_per_split;
+typedef alignas(4) struct _host_dispatch_handshake_t {
+  union {
+    alignas(2) struct {
+      union {
+        struct alignas(1) { char flag_lowaddr; char flag_highaddr; };
+	unsigned short _placeholder;
+      };
+      unsigned short split_number;
+    };
+    unsigned int _placeholder2;
+  };
+  unsigned int bytes_per_split;
 } host_dispatch_handshake_t;
 
 // quickdoc: dispatch_type used by dispatch handshake protocol
