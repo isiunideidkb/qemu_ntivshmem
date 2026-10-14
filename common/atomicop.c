@@ -289,8 +289,8 @@ bool __myatomic_read(void* volatile in_addr,
    }
    case 3: {
 #if defined(_ENABLE_LOG) && !defined(__i686__)
-    bool is_in = (((unsigned long)in_addr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
-    bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
+    bool is_in = (((unsigned long)in_addr & (64 - 1)) + 8) > CACHE_LINE_SIZE;
+    bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 8) > CACHE_LINE_SIZE;
     if(is_in && is_out) {
       printf("[WARN] cross cache line access,performance & program correctness may be affacted\n");
     }
