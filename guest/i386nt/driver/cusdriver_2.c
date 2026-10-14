@@ -43,10 +43,20 @@ See IA33 SDM Volume 3, Chapter 11.10.4
 extern void CusLog(const char* fmt,...);
 static_assert(sizeof(unsigned int) == 4);
 bool IsSupportMonitor() {
+  //MONITOR is of SSE3 ISA,making sure OS enabled the CR4.OSFXSR
+  unsigned int cr4 = 0;
+  __asm__ volatile("movl %%cr4,%[out_cr4]"
+                   : [out_cr4]"=r"(cr4)
+		   : /* nothing read */
+		   :);
+  unsigned int tmp_cr4 = cr4 << (32 - (10 + 1));
+  unsigned int is_osfxsr = tmp_cr4 >> (32 - 1);
+  if(!is_osfxsr)
+    return false;
   unsigned int eax,ebx,ecx,edx;
   __get_cpuid_count(0x01,0x00,&eax,&ebx,&ecx,&edx);
-  unsigned int ecx_tmp = ecx << ((sizeof(unsigned int)*8) - (3 + 1));
-  unsigned int is_support_umonitor = ecx_tmp >> ((sizeof(unsigned int)*8) - 1);
+  unsigned int ecx_tmp = ecx << (32 - (3 + 1));
+  unsigned int is_support_umonitor = ecx_tmp >> (32 - 1);
   if(is_support_umonitor)
     return true;
   return false;
@@ -61,11 +71,12 @@ monitor_init:
     __asm__ volatile ("movl $416,%%ecx \n\t"
                       "rdmsr \n\t"
 		      "movl %%eax,%0 \n\t"
-		      "movl %%edx,%1 \n\t" : "=m"(eax),"=m"(edx)
-		                           : /* 没有要读的喵 */
-					   : "eax","edx");
-   unsigned int eax_tmp = eax << ((sizeof(unsigned int)*8) - (19 + 1)); //fetch the 19th bit of eax
-   unsigned int eax_final = eax_tmp >> ((sizeof(unsigned int)*8) - 1);
+		      "movl %%edx,%1 \n\t"
+		      : "=rm"(eax),"=rm"(edx)
+		      : /* 没有要读的喵 */
+		      : "eax","edx");
+   unsigned int eax_tmp = eax << (32 - (19 + 1)); //fetch the 19th bit of eax
+   unsigned int eax_final = eax_tmp >> (32 - 1);
    if(eax_final) { //MSR is already enabled,but there's no support
      CusLog("[MONITOR] monitor is unsupported on your cpu");
      return false;
@@ -75,9 +86,10 @@ monitor_init:
      out_edx = edx;    
      __asm__ volatile ("movl $416,%%ecx \n\t"
                        "movl %0,%%eax \n\t"
-		       "movl %1,%%edx \n\t" : /* nothing */
-		                       : "m"(out_eax),"m"(out_edx)
-				       : "eax","edx");
+		       "movl %1,%%edx \n\t"
+		       : /* nothing */
+		       : "rm"(out_eax),"rm"(out_edx)
+		       : "eax","edx");
      CusLog("[MONITOR] enabled MSR");
      goto monitor_init;
    }
@@ -87,24 +99,27 @@ monitor_init:
   __get_cpuid_count(0x05,0x00,&eax,&ebx,&ecx,&edx);
   unsigned short* SmallestMonitorLineSize = (unsigned short*)&eax;
   unsigned int SmallestMonitorLineSizeLog = *SmallestMonitorLineSize;
+  unsigned short* LargestMonitorLineSize = (unsigned short*)&ebx;
+  unsigned int LargestMonitorLineSizeLog = *LargestMonitorLineSize;
   CusLog("[MONITOR] SmallestMonitorLineSize: %d",SmallestMonitorLineSizeLog);
+  CusLog("[MONITOR] LargestMonitorLineSize: %d",LargestMonitorLineSizeLog);
   return true;
 }
 [[gnu::target("sse3")]] void MonitorAddr(void* addr) {
   //todo advance extension support see IA32SDM, do not using stack addr space for 1th param
   __builtin_ia32_monitor (addr,0,0);
+  return;
 }
 
 [[gnu::target("sse3")]] void WaitAddr() {
   //todo advance extension support see IA32SDM
   __builtin_ia32_mwait (0,0);
+  return;
 }
 
-//todo enable AVX support
 //todo monitor addr with ext
 //todo wait with ext
-//todo CR check to avoid non-WB cache access
-//ignore: todo disable split-lock uc-lock see IA32_MEMORY_CTRL MSR and IA32_CORE_CAPABILITIES MSR,Volume 3, Chapter 11.1.2.3,these are introducted 6-13,at least, Windows XP will not set this MSR
+//todo CR0 check to avoid non-WB cache access : ok
 
 void CorrectCache() {
   CusLog("=====Correct Cache=====");
@@ -117,42 +132,19 @@ void CorrectCache() {
   unsigned int new_cr0 = old_cr0;
   if(is_nw) {
     CusLog("[CORRECT] invalid nw bit");
-    new_cr0 -= 0b00100000'00000000'00000000'00000000
+    new_cr0 -= 0b00100000'00000000'00000000'00000000;
   }
   if(is_cd) {
-    new_cr0 -= 0b01000000'00000000'00000000'00000000  
+    new_cr0 -= 0b01000000'00000000'00000000'00000000; 
     CusLog("[CORRECT] invalid cd bit");
   }
   if(new_cr0 != old_cr0) {
-    __asm__ volatile ("movl %[in_param],%%cr0 \n\t"
+    __asm__ volatile ("movl %[in_param],%%edi \n\t"
+                      "movl %%edi,%%cr0 \n\t"
                       "wbinvd \n\t"
 		      :
 		      : [in_param]"rm"(new_cr0)
-		      :);  
+		      : "edi");  
   }
   return;
-}
-
-void EnableAVX() {
-  //todo
-}
-
-void EnableSSE() {
-  //todo
-}
-
-void EnableSSE2() {
-  //tood
-}
-
-void EnableSSE3() {
-  //todo
-}
-
-void EnableSSE4() {
-  //todo
-}
-
-void EnableMMX() {
-  //todo
 }

@@ -5,20 +5,13 @@
   use nullptr instead of NULL
 */
 
-
 /* ===== PLATFORM CHECK ===== */
 #pragma once
 #ifndef __GNUC__
 #error "wrong platform"
 #endif
-
 #if __STDC_VERSION__ < 2023L
 #error "wrong stdc version"
-#endif
-
-
-#if !defined(__has_builtin) || !__has_builtin(__atomic_load)
-#error "no atomic intrinsic"
 #endif
 
 
@@ -105,8 +98,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "umonitor_check.h"
+#include <common/umonitor_check.h>
 #include <immintrin.h>
+#include <common/atomicop.h>
 #ifdef __USE_WINDOWS__
 #include <windows.h>
 #endif
@@ -131,11 +125,27 @@
 #error "please remove #include <assert.h>"
 #endif
 #define PRIVATE_FUNC static
+#define READ_HELLO_HANDSHAKE(addr,hh_out)   do { \
+                                               __myatomic_read((void*)(((char*)addr)+1),(void*)(&(hh_out->cap_mask)),READ_BYTE); \
+                                               __myatomic_read((void*) (((char*)(addr))+2),(void*)(&(hh_out->_1_length)),READ_4BYTE); \
+                                               __myatomic_read(addr,(void*)(&(hh_out->hello_message)),READ_BYTE);	\
+					     } while(0)
+#define READ_DISPATCH_HANDSHAKE(addr,hdh_out) do { \
+						 __myatomic_read((void*) (((char*)addr)+1),(void*)(&(hdh_out->flag_highaddr)),READ_BYTE); \
+						 __myatomic_read((void*) (((char*)addr)+2),(void*)(&(hdh_out->split_number)),READ_2BYTE); \
+						 __myatomic_read((void*) (((char*)addr)+4),(void*)(&(hdh_out->bytes_per_split)),READ_4BYTE); \
+					         __myatomic_read(addr,(void*)(&(hdh_out->flag_lowaddr)),READ_BYTE); \
+                                               } while(0)
+                                                  
 
-static void(*system_specific_waiter)(void* addr) = nullptr;
+
+//1byte!
+typedef void(*ssw_t)(void* addr);
+//quickdoc: system_specific_waiter used by host_run_*_system routines,if this variable is not null,system_specific_waiter is prefered
+//this waiter receives a addr,listens the modification in 1byte region
+//this variable is private linkage(i.e. static)
+static ssw_t system_specific_waiter = nullptr;
 void set_client_system_specific_waiter(void* target) {
-  system_specific_waiter = target;
+  system_specific_waiter = (ssw_t)(target);
   return;
 }
-
-

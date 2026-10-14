@@ -29,7 +29,14 @@ source code of qemu
 
 
 host:
-waitpkg or KVM ioeventfd(rolling back)?
+waitpkg or KVM ioeventfd?
 
 guest:
-waitpkg or MONITOR(using kernel driver wrapper)
+waitpkg or MONITOR(内核驱动)
+
+
+host是怎么zero-copied的:
+ivshmem-plain 在内部会有一个叫Memomry Backend的对象 该对象持有Memory Region,尝试修改QEMU代码 将Memory Backend持有的Memory Region重定向到一个由preloader生成的Virutal Linear Address.便可以对该地址的部分进行overlap mmap实现zero-copied,然后还需要resume?
+
+guest是怎么zero-copied的:
+直接物理内存直通对虚拟地址获取物理地址 但是前提是需要锁定该页为不可交换的 防止交换到磁盘
