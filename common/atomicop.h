@@ -7,11 +7,8 @@
 #define WRITE_8BYTE 3
 #define READ_8BYTE 3
 
+bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
+                      unsigned int number);
 
-bool __myatomic_write(void* volatile _in_addr,
-                      void* volatile _in_value_addr,
-		      unsigned int number);
-
-bool __myatomic_read(void* volatile in_addr,
-                     void* volatile out_addr,
-                     unsigned int number);		      
+bool __myatomic_read(void* volatile in_addr, void* volatile out_addr,
+                     unsigned int number);
