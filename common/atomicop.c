@@ -78,7 +78,7 @@ bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
       "prefetcht0 (%[in_value_addr]) \n\t"
       "prefetcht0 (%[in_addr]) \n\t"
       :
-      : [in_addr] "r"(in_addr), [in_value_addr] "r"(in_addr)
+      : [in_addr] "r"(in_addr), [in_value_addr] "r"(in_value_addr)
       :);
   switch (number) {
     case 0:
