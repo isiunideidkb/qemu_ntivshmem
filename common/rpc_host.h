@@ -216,6 +216,10 @@ typedef struct _host_dispatch_handshake_t {
   unsigned int bytes_per_split;
 } __attribute__((aligned(4))) host_dispatch_handshake_t;
 
+//SHIT
+static_assert(sizeof(host_dispatch_handshake_t) == 8);
+static_assert(sizeof(host_handshake_t) == 8);
+
 // quickdoc: dispatch_type used by dispatch handshake protocol
 enum dispatch_type : char {
   SHM = (char)0x0,
