@@ -7,7 +7,7 @@
 [0]
 data: <PlatformIndependentAddressType>
 length: <an 32bit value for data length>
-requires length range [32MB,4GB]
+requires length range [32MB,4GB],(length & (64-1)) == 0,length is the power of 2,addr of data,(AddrOfData & (64-1) == 0)
 
 [1] initialize
 
@@ -17,18 +17,16 @@ LowAddr <-> HighAddr
 ---All Zero Filled---
 
 <address length> means the whole length of addr space, not include 0!
-
 which in Hello:
-1st word Low 1byte HelloMessage
-1st word High 1byte padding for alignment
-
-2st word Low 1byte Low8bitAddr pcapability mask
+1st word 1st 1byte HelloMessage
+1st word 2nd 1byte padding for alignment
+2st word 1st 1byte Low8bitAddr pcapability mask
   which in capability mask
   bit0: does it suports UMONITOR extension   1 yes 0 no
   bit1: does it supports PhysAddr passthrough 1 yes 0 no
   bit2: client error return bit,host is expected to set the bit as 0
   bit3-7: reserved
-2st word High 1byte padding for alignment
+2st word 2st 1byte padding for alignment
 
 //note 4byte address length is a 4byte unsigned int
 host init
@@ -54,6 +52,7 @@ LowAddr <-> HighAddr
 
 requires <split number> * <bytes per split> == <length>
 revision: requires: (<bytes per split> % 4) == 0
+revision: requires: (<bytes per split> % 64) == 0,<bytes per split> be the power of 2,bytes per split >= 8,split number >= 1
 note: the max vlaue of split number is 65535 unsigned int, requires <split number> ge(>=) 1
 note: the bytes per split is 4byte unsigned int, requires the <bytes per split> must be the power of 2 and greater|equals than 2MB
 which in 2byte short for Flag:
@@ -84,16 +83,19 @@ thus,all of client & host located each the function's head Flag
 LowAddr <-> HighAddr
 ---All Zero Filled--- 
 
-requires <function body> + <function head> == <bytes per split>
+requires <2word(4byte) function body> + <function head> == <bytes per split>
 which in <function head>
-  Low 1byte Flag
-  High 1byte FuncNumber
+  which in function body
+  1st word,1st byte hello msg
+  1st word,2nd byte padding for alignment
+  2nd word,1st byte FuncNumber
+  2nd word,2nd byte padding for alignment
   which in FuncNumber
     0x0 huge page SHM,see blow
     0x1 SHM
     0x2 rpc function
     ... reserved no function
-    
+revision the address of function body,must be alignas 64byte,i.e. (addrtolong % 64 == 0)
 the huge page SHM
   this is used by non-SHM function,it can be read only while non-SHM function's Flag is 1(shm)
   the huge page SHM occupies one or more splits,and there's mere one Flag is available
@@ -102,11 +104,14 @@ the huge page SHM layout
 LowAddr <-> HighAddr
 ---All Zero Filled--- 
 which in the <huge SHM Flag>
-  Low 1byte Flag reserved DONOT READ&WRITE 0x1 for constant
-  High 1byte Flag READONLY 0x0 for constant
+  as same as function head
+  1st word,1st byte,reserved
+  1st word,2nd byte padding for alignment
+  2nd word,1st byte,constant 0x0
+  2nd word,2nd byte padding for alignment
 requires <huge SHM Flag> + <huge SHM size> +<huge SHM body> = <any_unsign_integer> * <bytes per split>
 requires value of <SHM size> == <huge SHM Flag> + <if exists huge SHM size> + <huge SHM body>
-revision: requiers (<SHM size> % 4) == 0
+revision: requires (<Huge SHM size> % 64) == 0,<Huge SHM size> is the power of 2, alternative representation Huge SHM Size % bytes per split == 0
 NOTE: make the SHM space inhabits on the tail space of <data> as mush as possible,but it's not a contraint
 
 the SHM
@@ -136,10 +141,10 @@ LowAddr <-> HighAddr
 ---All Zero Filled---
 
 <which in rpc flag>
-1nd byte LowAddr call Flag
-1nd byte HighAddr padded for alignment
-2nd LowAddr reserved for constant 0x2
-2nd byte HighAddr padded for alignment
+1st byte 1st byte call Flag
+1st byte 2nd byte padded for alignment
+2nd 1st byte reserved for constant 0x2
+2nd 2nd byte padded for alignment
 
 <which in rpc body>
   <parameters> <result>
@@ -163,6 +168,5 @@ concrete rpc procedure similar to the before steps:
 rpcs are anonymous,the concrete steps also depends on the conventions
 
 one last requirements <add all functions include flags&sizes> == <length>
-
 
 revision: every write&read operation in this area,must align as 4 byte
