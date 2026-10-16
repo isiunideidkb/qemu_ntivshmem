@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <common/rpc_host.h>
 
+#if __STDC_VERSION__ < 2023L
+#error "wrong stdc version"
+#endif
+
 //todo macro options check
 #ifdef _ENABLE_LOG
 #define LOG(ct) printf("[INFO]" ct "\n");

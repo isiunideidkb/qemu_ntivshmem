@@ -109,7 +109,7 @@ monitor_init:
   CusLog("[MONITOR] LargestMonitorLineSize: %d", LargestMonitorLineSizeLog);
   return true;
 }
-[[gnu::target("sse3")]] void MonitorAddr(void* addr) {
+[[gnu::target("sse3"),gnu::cdecl]] void MonitorAddr(void* addr) {
   // todo advance extension support see IA32SDM, do not using stack addr space
   // for 1th param
   __builtin_ia32_monitor(addr, 0, 0);

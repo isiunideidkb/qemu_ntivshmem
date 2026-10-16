@@ -9,38 +9,12 @@ mkdir build
 
 tee -a ./dynlist.txt <<EOF
 {
-  cpu_physical_memory_all_dirty;
-  cpu_physical_memory_clear_dirty_range;
-  cpu_physical_memory_dirty_bits_cleared;
-  cpu_physical_memory_dirty_bits_cleared.constprop.0;
-  cpu_physical_memory_get_dirty.constprop.0;
-  cpu_physical_memory_get_dirty_flag;
-  cpu_physical_memory_is_clean;
-  cpu_physical_memory_is_io;
   cpu_physical_memory_map;
-  cpu_physical_memory_range_includes_clean;
-  cpu_physical_memory_read;
-  cpu_physical_memory_read.constprop.0;
-  cpu_physical_memory_rw;
-  cpu_physical_memory_set_dirty_flag.constprop.0;
-  cpu_physical_memory_set_dirty_lebitmap;
-  cpu_physical_memory_set_dirty_lebitmap.isra.0;
-  cpu_physical_memory_set_dirty_range;
-  cpu_physical_memory_set_dirty_range.constprop.0;
-  cpu_physical_memory_snapshot_and_clear_dirty;
-  cpu_physical_memory_snapshot_and_clear_dirty.cold;
-  cpu_physical_memory_snapshot_get_dirty;
-  cpu_physical_memory_snapshot_get_dirty.cold;
-  cpu_physical_memory_sync_dirty_bitmap.constprop.0;
-  cpu_physical_memory_test_and_clear_dirty;
-  cpu_physical_memory_test_and_clear_dirty.cold;
   cpu_physical_memory_unmap;
-  cpu_physical_memory_write;
-  cpu_physical_memory_write.constprop.0;
 };
 EOF
 
-../configure --extra-cflags="-O2 -fno-inline -fvisibility=default -g" --disable-strip --extra-ldflags="-Wl,--dynamic-list=($PWD)/dynlist.txt" --prefix=/path/to/your/prefix
+../configure --extra-cflags="-O2 -fno-inline -fvisibility=default -g" --disable-strip --extra-ldflags="-Wl,--dynamic-list=$PWD/dynlist.txt" --prefix=/path/to/your/prefix
 
 make
 

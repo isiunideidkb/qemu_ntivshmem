@@ -4,17 +4,12 @@
 
 为什么失败? 代码耦合性太高了 导致依赖循环 应该原生就内置context wrapper
 
+这个系列不需要calling convention,因为需要指示的一般都是出现在编译器不知道的情况 例如跨编译器 或者汇编实现 而这个的函数定义和实现(.c .h)都是在同一个编译器内部 所以不需要指示 编译器会自动选择并且对应 不同的平台编译不同的就可以了
+
 */
 #pragma once
-#if !defined(__STDC_VERSION__) || !defined(__GNUC__)
+#if !defined(__STDC_VERSION__) || !defined(__GNUC__) || (__STDC_VERSION__ < 2023L)
 #error "wrong platform"
-#endif
-
-#if (__STDC_VERSION__ < 2023L) && (__STDC_VERSION__ > 1999L)
-#define nullptr NULL
-#define bool _Bool
-#define true (char)1
-#define false (char)0
 #endif
 
 //todo compiation option selector

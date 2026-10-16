@@ -45,6 +45,11 @@
 #include <execinfo.h>
 #endif
 
+#if __STDC_VERSION__ < 2023L
+#error "wrong stdc version"
+#endif
+
+
 #if !defined(_USE_MOV) && !defined(_USE_CMPXCHG)
 #define _USE_CMPXCHG
 #endif
@@ -53,7 +58,7 @@
 #define CACHE_LINE_SIZE 64
 #endif
 
-static void __attribute__((sysv_abi)) _backtrace_and_exit() {
+static void _backtrace_and_exit() {
 #ifdef __gnu_linux__
   void* stack_ptrs[10];
   char** strings;
@@ -69,7 +74,7 @@ static void __attribute__((sysv_abi)) _backtrace_and_exit() {
   exit(-1);
 }
 
-bool __attribute__((sysv_abi)) __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
+[[gnu::sysv_abi]] bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
                       unsigned int number) {
   if ((_in_addr == nullptr) || (_in_value_addr == nullptr)) goto error;
   register void* in_addr = _in_addr;
@@ -201,7 +206,7 @@ error:
   return false;
 }
 
-bool __attribute__((sysv_abi)) __myatomic_read(void* volatile in_addr, void* volatile out_addr,
+[[gnu::sysv_abi]] bool __myatomic_read(void* volatile in_addr, void* volatile out_addr,
                      unsigned int number) {
   // todo CMPXCHG for read instead of MOV
   if ((in_addr == nullptr) || (out_addr == nullptr)) goto error;
