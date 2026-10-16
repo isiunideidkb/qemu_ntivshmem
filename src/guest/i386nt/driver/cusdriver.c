@@ -86,10 +86,11 @@
 #define ACCESS_FROM_CTL_CODE(ctl) (((ctl) >> 14) & 0x3u)
 #endif
 
-extern _Bool IsSupportMonitor();
-extern _Bool MonitorInit();
-extern void MonitorAddr(void* addr);
-extern void WaitAddr();
+extern _Bool __cdecl IsSupportMonitor();
+extern _Bool __cdecl MonitorInit();
+extern void __cdecl MonitorAddr(void* addr);
+extern void __cdecl WaitAddr();
+extern void __cdecl CorrectCache();
 
 /* ------------------------------------------------------------------------
  * Device extension

@@ -16,4 +16,5 @@ for further internal information ,email me
 
 
 todo list:
-  remove __atomic_* instrinsics,use Assembly + volatile instead
+  remove __atomic_* instrinsics,use Assembly + volatile instead : ok
+  unify stdc version,attribute of the whole project

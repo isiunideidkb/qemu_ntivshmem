@@ -46,7 +46,7 @@ See IA33 SDM Volume 3, Chapter 11.10.4
 #include <immintrin.h>
 extern void CusLog(const char* fmt, ...);
 static_assert(sizeof(unsigned int) == 4);
-bool IsSupportMonitor() {
+[[gnu::cdecl]] bool IsSupportMonitor() {
   // MONITOR is of SSE3 ISA,making sure OS enabled the CR4.OSFXSR
   unsigned int cr4 = 0;
   __asm__ volatile("movl %%cr4,%[out_cr4]"
@@ -64,7 +64,7 @@ bool IsSupportMonitor() {
   return false;
 }
 
-bool MonitorInit() {
+[[gnu::cdecl]] bool MonitorInit() {
   unsigned int eax, ebx, ecx, edx;
   unsigned int out_eax, out_edx;
 monitor_init:
@@ -116,7 +116,7 @@ monitor_init:
   return;
 }
 
-[[gnu::target("sse3")]] void WaitAddr() {
+[[gnu::target("sse3"),gnu::cdecl]] void WaitAddr() {
   // todo advance extension support see IA32SDM
   __builtin_ia32_mwait(0, 0);
   return;
@@ -126,7 +126,7 @@ monitor_init:
 // todo wait with ext
 // todo CR0 check to avoid non-WB cache access : ok
 
-void CorrectCache() {
+[[gnu::cdecl]] void CorrectCache() {
   CusLog("=====Correct Cache=====");
   unsigned int old_cr0;
   __asm__ volatile("movl %%cr0,%[out_parm] \n\t"

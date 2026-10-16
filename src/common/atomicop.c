@@ -49,11 +49,11 @@
 #define _USE_CMPXCHG
 #endif
 
-#ifndef CACHE_LINE_SIZE
+#ifdef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
 #endif
 
-static void _backtrace_and_exit() {
+static void __attribute__((sysv_abi)) _backtrace_and_exit() {
 #ifdef __gnu_linux__
   void* stack_ptrs[10];
   char** strings;
@@ -69,7 +69,7 @@ static void _backtrace_and_exit() {
   exit(-1);
 }
 
-bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
+bool __attribute__((sysv_abi)) __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
                       unsigned int number) {
   if ((_in_addr == nullptr) || (_in_value_addr == nullptr)) goto error;
   register void* in_addr = _in_addr;
@@ -201,7 +201,7 @@ error:
   return false;
 }
 
-bool __myatomic_read(void* volatile in_addr, void* volatile out_addr,
+bool __attribute__((sysv_abi)) __myatomic_read(void* volatile in_addr, void* volatile out_addr,
                      unsigned int number) {
   // todo CMPXCHG for read instead of MOV
   if ((in_addr == nullptr) || (out_addr == nullptr)) goto error;
