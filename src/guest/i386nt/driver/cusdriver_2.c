@@ -90,6 +90,7 @@ monitor_init:
           "movl $416,%%ecx \n\t"
           "movl %0,%%eax \n\t"
           "movl %1,%%edx \n\t"
+	  "wrmsr \n\t"
           : /* nothing */
           : "rm"(out_eax), "rm"(out_edx)
           : "eax", "edx");
