@@ -1,3 +1,4 @@
+#pragma once
 #define WRITE_BYTE 0
 #define READ_BYTE 0
 #define WRITE_2BYTE 1

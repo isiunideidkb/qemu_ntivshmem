@@ -12,7 +12,7 @@ requires length range [32MB,4GB],(length & (64-1)) == 0,length is the power of 2
 [1] initialize
 
 data Addr Space
-<double word,ushort,4byte for Hello> <4byte address length>
+<double word,4byte for Hello> <4byte address length>
 LowAddr <-> HighAddr
 ---All Zero Filled---
 

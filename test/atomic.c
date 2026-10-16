@@ -1,8 +1,11 @@
 /*
-  test 64 bit: cc -m64 -D_ENABLE_LOG -g -std=c23 -Werror -I.. ./atomic.c
-  test 32bit: i686-pc-linux-gnu-gcc -D_ENABLE_LOG -g -std=c23 -Werror -I..
-  ./atomic.c or clang -D__i686__ -target i686-pc-linux-gnu -D_ENABLE_LOG -g
-  -std=c23 -Werror -I.. ./atomic.c note: clang target triple i686-* will not
+  test 64 bit: cc -m64 -D_ENABLE_LOG -g -std=c23 -Werror -I../include ../src/common/atomicop.c ./atomic.c
+  
+  test 32bit: i686-pc-linux-gnu-gcc -D_ENABLE_LOG -g -std=c23 -Werror -I../include ../src/common/atomicop.c ./atomic.c
+  
+  test 32bit clang: clang -D__i686__ -target i686-pc-linux-gnu -D_ENABLE_LOG -g -std=c23 -Werror -I../include ../src/common/atomicop.c ./atomic.c
+  
+  note: clang target triple i686-* will not
   define the __i686__ macro,define it manually
 */
 
