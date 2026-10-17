@@ -18,3 +18,11 @@ for further internal information ,email me
 todo list:
   remove __atomic_* instrinsics,use Assembly + volatile instead : ok
   unify stdc version,attribute of the whole project
+
+
+note:
+  cpu_physical_memory_map 传入的addr 在QEMU内部的表示 可能是不平坦不连续的MemoryRegion(not AddressSpace的Flatview成员) 对于这种MemoryRegion map底层会尝试构建BounceBuffer 这会在内部拷贝 这是无法避免的 所以只适用于host透传旧的数据 对于实时的 只能放到shared memory上 并且unmap来写入 具体详见source code of QEMU system/physmem.c system/memory.c
+  RPC尽可能零拷贝的传参顺序 对于返回值 rpc-host可以选择直接overlap map到shared memory上 然后经由driver映射到client的地址空间 0拷贝
+  对于参数 只读的可以保证长期不变的 rpc-host可以尝试使用cpu_physical_memory_map address_space_map映射 并且尝试修改源代码标注是否发生了拷贝行为 尽可能优化 若发生了尽快unmap写回 若没有发生直接写入 我们还需要对比使用map内部发生拷贝和直接明文使用拷贝发生的时间对比 可能直接使用shared memory拷贝更快 我们可以做一个可选的操作
+  
+  
