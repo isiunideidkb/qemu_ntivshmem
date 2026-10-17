@@ -45,7 +45,7 @@
 #include <execinfo.h>
 #endif
 
-#if __STDC_VERSION__ < 2023L
+#if !defined(__STDC_VERSION__) || !defined(__GNUC__) || (__STDC_VERSION__ < 2023L)
 #error "wrong stdc version"
 #endif
 
