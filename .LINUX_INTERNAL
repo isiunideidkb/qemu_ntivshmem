@@ -1,0 +1,18 @@
+host.qemu export table:
+custom_memory_map  map  zero copied as much as possible
+custom_memory_unmap  map zero copied as much as possible
+custom_request_map  directly call address_space_map
+custom_request_unmap directly call address_space_unmap
+custom_request_read directly call address_space_read
+custom_request_writed directly call address_space_write
+custom_request_enter_monitor
+custom_request_init_monitor request to init the monitor
+
+host.rpc export table:
+custom_request_addr call once,init the addr the following call will ignore
+custom_request_exist_addr return an existing init addr,if not initialized return NULL
+custom_request_notify
+
+
+
+todo calling convention unifying: sysv_abi

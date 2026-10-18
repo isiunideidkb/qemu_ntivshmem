@@ -1,3 +1,8 @@
+/*
+  implementation and internals for include/common/rpc_host.h
+  a abstract OS independent,rpc management API
+*/
+
 #incude <stdio.h>
 #include <stdlib.h>
 #include <common/rpc_host.h>
@@ -55,18 +60,46 @@
 #error "invalid platform"
 #endif
 
-#endif
-static host_rpc_waiter_t host_rpc_waiter_empty = (host_rpc_waiter_t)nullptr;
-static host_rpc_waiter_t host_rpc_waiter = host_rpc_waiter_empty;
-extern void host_rpc_update_waiter(host_rpc_waiter_t another_waiter)
+//static sometype_t internal_default_SemaphoreOrFutex = null;
+static char default_waiter(void* addr,void* rpc)
 {
-  WARN("host was passed a invalid waiter");
-  host_rpc_waiter = another_waiter;
-  return;
+  host_rpc_ctx* ctx = rpc;
+  //todo check the ctx for stage HH or DHH or DH
+  //addr cannot be nullptr
+  bool is_find = false;
+  if((unsigned long)addr == ctx->start_addr)
+    is_find = true;
+  else {
+    for(struct _host_dispatch_node cur_node = ctx->dispatch_ctx->disp_table->next; cur_node != nullptr; cur_node = p->next)
+    {
+      //check p
+      if((unsigned long)addr == p->start_addr)
+      {
+        is_find = true;
+      }
+    }
+  }
+  if(is_find) {
+    //todo block using internal_default_SemaphoreOrFutex
+    //todo call qemu enter_monitor wait the notifier back
+  }
 }
-extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
-	     	               unsigned int length)
+static char default_notifier(unsigned int length,void* rpc)
 {
+  host_rpc_ctx* ctx = rpc;
+  //todo check ctx
+  //todo check the internal_default_SemaphoreOrFutex and unblock if exists
+}
+//tood export wrapped default_notifier to custom_request_notify
+//calling sequence  host_wait -> qemu_inside -> qemu_add_eventfd -> qemu call notify -> host_notify -> host_wait wake up
+//these custom_request_* related routine does not defined by rpc_host.c/h 
+
+
+
+#endif
+extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
+   	     	                      unsigned int length)
+{  
   assert(begin_addr != nullptr &&
          length != 0 &&
 	 ((unsigned long)begin_addr & (64 - 1)) == 0 &&
@@ -82,6 +115,7 @@ extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
   alloc_ctx->cur_state = INIT;
   alloc_ctx->is_umonitor = is_suppport_umonitor();
   alloc_ctx->start_addr = begin_addr;
+  //todo add default waiter and notifier if is_umonitor == false
   return alloc_ctx;
 }
 
@@ -93,13 +127,15 @@ extern void host_rpc_del_ctx(host_rpc_ctx* in_ptr)
   return;
 }
 
-static void wait_utilz(bool is_umonitor,void* addr)
+extern void host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier)
 {
-#ifdef _ENABLE_WAITPKG
-  if(is_umonitor) {}
-#else
-  if(false)
-#endif
-
-  
+  //todo check the ctx for INIT stage
+  if(ctx->is_umonitor) {
+    //ignore
+  }
+  else {
+    ctx->system_waiter = waiter;
+    ctx->system_notifier = notifier;
+  }
+  return;
 }

@@ -15,16 +15,14 @@
 
 /*
 
-
+  a abstract OS independent,rpc management API
+  
   1. in host_hello_handshake stage the cap_mask is deprecated,set 1 for client_error,0 for ok
   2. the operations are 4-byte align guaranteed
 
 
 */
 
-
-
-typedef void(*host_rpc_waiter_t)(void* addr);
 
 alignas(4) struct _host_raw_hh {
   union {
@@ -54,6 +52,9 @@ alignas(4) struct _host_raw_dhh {
 static_assert(sizeof(struct _host_raw_hh) == 8);
 static_assert(sizeof(struct _host_raw_dhh) == 8);
 
+typedef char(*host_rpc_waiter_t)(void* addr,void* rpc_ctx);
+typedef char(*host_rpc_notifier_t)(unsigned short number,void* rpc_ctx);
+
 enum host_rpc_state {
   TERMINATE = -1,INIT = 0,HH,DHH,DH
 };
@@ -62,7 +63,7 @@ enum host_rpc_type {
 }
 struct _host_dispatch_node {
   struct _host_dispatch_node* next;
-  void* begin_addr;
+  void* start_addr;
   unsigned int length;
 };
 typedef struct _host_rpc_ctx {
@@ -74,13 +75,18 @@ typedef struct _host_rpc_ctx {
   };
   struct
   {
-    void* begin_addr;
     unsigned int length;
     struct _host_dispatch_node* disp_table;
     struct _host_dispatch_node* disp_table_end;
   } dispatch_ctx;
   enum host_rpc_state cur_state;
+  
+  //enable 
   bool is_umonitor;
+  //or enable
+  host_rpc_waiter_t system_waiter; //not available while is_umonitor == true
+  host_rpc_notifier_t system_notifier; //not available while is_umonitor == true
+  
 } host_rpc_ctx;
 
 /*
@@ -103,17 +109,23 @@ extern void host_rpc_new_ctx(void* begin_addr,unsigned int length);
 */
 extern void host_rpc_del_ctx(host_rpc_ctx*);
 
+/*
+  set rpcs system waiter,notifier
+  ignored when ctx->is_umonitor == true
 
+  see host_rpc.c,here's a example of introducing the system waiter,notifier
+*/
+extern void host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier);
 
 /*
   check the whether the host_rpc_ctx is ready(non-TERMINATE)
 */
-extern bool host_rpc_new_check(host_rpc_ctx*);
+extern bool host_rpc_check(host_rpc_ctx*);
 
 /*
   check the whether the host_rpc_ctx is appropriate for different stage
 */
-extern bool host_rpc_new_check_stage(host_rpc_ctx*,host_rpc_state);
+extern bool host_rpc_check_stage(host_rpc_ctx*,host_rpc_state);
 
 /*
   perform handshake,dispatch handshake,dispatch
@@ -136,11 +148,3 @@ extern void host_rpc_handshake_async();
   this routine changes the cur_state
 */
 extern void host_rpc_dispatch();
-
-/*
-  update waiter
-
-  the host_rpc_waiter 
-*/
-extern void host_rpc_update_waiter(host_rpc_waiter_t another_waiter);
-
