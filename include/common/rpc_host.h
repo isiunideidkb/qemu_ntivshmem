@@ -64,7 +64,7 @@ enum host_rpc_type {
 struct _host_dispatch_node {
   struct _host_dispatch_node* next;
   void* start_addr;
-  unsigned int length;
+  alignas(8) unsigned int length;
 };
 typedef struct _host_rpc_ctx {
   void* start_addr;

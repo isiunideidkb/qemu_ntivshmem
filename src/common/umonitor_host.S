@@ -26,7 +26,7 @@ __host_wait_umonitor:
   movb $0,%al
   lock cmpxchgb %bl,(%rax)
   jne 1f
-  mwait
+  umwait
   jmp 0b
 1:
   ret
@@ -40,7 +40,7 @@ __host_wait_umonitor:
   movb $0,%al
   lock cmpxchgb %bl,(%eax)
   jne 1f
-  mwait
+  umwait
   jmp 0b
 1:
   ret
