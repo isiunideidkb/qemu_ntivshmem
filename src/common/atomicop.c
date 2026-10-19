@@ -32,6 +32,10 @@
   out old value see IA32SDM strategy of WB memory caching,memory order,bus
   locks
 
+  why uses *femce memory barrier instruction,the typical processor order will
+  reorder read before write although the write executed and the operation all
+  atomic(apparently regardless of atomic),maybe due to cache coherencylatency?
+  i don't know. but the *fence can prevent the read&write reordering
 
   macro options:
   _ENABLE_LOG : enables log for read option, recommended

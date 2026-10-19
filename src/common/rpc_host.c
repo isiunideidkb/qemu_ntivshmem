@@ -92,11 +92,13 @@ static char default_notifier(unsigned int length,void* rpc)
 }
 //tood export wrapped default_notifier to custom_request_notify
 //calling sequence  host_wait -> qemu_inside -> qemu_add_eventfd -> qemu call notify -> host_notify -> host_wait wake up
-//these custom_request_* related routine does not defined by rpc_host.c/h 
-
-
+//these custom_request_* related routine does not defined by rpc_host.c/h
 
 #endif
+
+[[gnu::sysv_abi]] extern __host_wait_umonitor(void* volatile addr);
+
+
 extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
    	     	                      unsigned int length)
 {  
