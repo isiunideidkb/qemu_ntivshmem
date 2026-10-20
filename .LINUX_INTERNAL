@@ -11,8 +11,8 @@ custom_request_init_monitor request to init the monitor
 host.rpc export table:
 custom_request_addr call once,init the addr the following call will ignore
 custom_request_exist_addr return an existing init addr,if not initialized return NULL
-custom_request_notify
 
 
+rev: custom_enter_monitor返回的结果 大概率也是对接host_rpc的system_waiter 大概率不用notifier 返回就直接代表对方写入 并且是特定的值命中 不需要像umonitor一样检查地址
 
 todo calling convention unifying: sysv_abi
