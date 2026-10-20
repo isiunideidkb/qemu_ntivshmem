@@ -41,7 +41,7 @@ alignas(4) struct _host_raw_dhh {
   alignas(4) union {
     struct {
       char flag;
-      char error_code;
+      char error_code; //0 for ok
     };
     unsigned short _ignoreme;
   };
@@ -58,24 +58,36 @@ typedef char(*host_rpc_notifier_t)(unsigned short number,void* rpc_ctx);
 enum host_rpc_state {
   TERMINATE = -1,INIT = 0,HH,DHH,DH
 };
-enum host_rpc_type {
-  HUGE_SHM,SHM,FUNC
+enum host_dispatch_node_type {
+  HUGE_SHM = 0x0,SHM = 0x1,FUNC = 0x2
 }
+//this is not RAW!
 struct _host_dispatch_node {
   struct _host_dispatch_node* next;
   void* start_addr;
   alignas(8) unsigned int length;
+  alignas(8) enum host_dispatch_node_type type;
 };
+
+
+/*
+  Warning nullptr not checked
+*/
+extern void host_rpc_create_node(); //malloc
+extern void host_rpc_concat_node(); //concat the next
+extern void host_rpc_del_node(); //delete the node created by host_rpc_create_node
+extern void host_rpc_remove_nodes(); //remove a number of consequent nodes created by host_rpc_create_node
+
 typedef struct _host_rpc_ctx {
   void* start_addr;
-  alignas(8) union handshake_area
+  unsigned int length;  
+  alignas(8) union 
   {
     struct _host_raw_hh hello_handshake;
-    struct _host_raw_dhh hello_dispatch_handshake;
+    struct _host_raw_dhh dispatch_handshake;
   };
   struct
   {
-    unsigned int length;
     struct _host_dispatch_node* disp_table;
     struct _host_dispatch_node* disp_table_end;
   } dispatch_ctx;
@@ -118,14 +130,17 @@ extern void host_rpc_del_ctx(host_rpc_ctx*);
 extern void host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier);
 
 /*
-  check the whether the host_rpc_ctx is ready(non-TERMINATE)
+  check the whether the host_rpc_ctx is ready(non-TERMINATE,handshake-able),do not check dispatch,failure when cur_state == DH,TERMINATE
 */
 extern bool host_rpc_check(host_rpc_ctx*);
 
 /*
   check the whether the host_rpc_ctx is appropriate for different stage
 */
-extern bool host_rpc_check_stage(host_rpc_ctx*,host_rpc_state);
+extern bool host_rpc_check_stage(host_rpc_ctx*,enum host_rpc_state);
+
+
+extern void host_rpc_set_handshake();
 
 /*
   perform handshake,dispatch handshake,dispatch
@@ -142,9 +157,10 @@ extern void host_rpc_handshake();
 */
 extern void host_rpc_handshake_async();
 
+extern void host_rpc_set_dispatch();
 /*
   perform dispatch,requires handshake before
   this routine does NOT block the program
-  this routine changes the cur_state
+  this routine changes the cur_state]
 */
 extern void host_rpc_dispatch();
