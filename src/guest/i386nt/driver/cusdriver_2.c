@@ -77,7 +77,7 @@ monitor_init:
         "movl %%edx,%1 \n\t"
         : "=rm"(eax), "=rm"(edx)
         : /* 没有要读的喵 */
-        : "eax", "edx");
+        : "eax", "edx", "ecx");
     unsigned int eax_tmp = eax << (32 - (19 + 1));  // fetch the 19th bit of eax
     unsigned int eax_final = eax_tmp >> (32 - 1);
     if (eax_final) {  // MSR is already enabled,but there's no support
@@ -93,7 +93,7 @@ monitor_init:
 	  "wrmsr \n\t"
           : /* nothing */
           : "rm"(out_eax), "rm"(out_edx)
-          : "eax", "edx");
+          : "eax", "edx", "ecx");
       CusLog("[MONITOR] enabled MSR");
       goto monitor_init;
     }
