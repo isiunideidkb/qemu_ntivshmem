@@ -58,9 +58,7 @@
 #define _USE_CMPXCHG
 #endif
 
-#ifdef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
-#endif
 
 static void _backtrace_and_exit() {
 #ifdef __gnu_linux__
@@ -253,7 +251,7 @@ error:
 #ifdef _ENABLE_LOG
       bool is_in = (((unsigned long)in_addr & (64 - 1)) + 2) > CACHE_LINE_SIZE;
       bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 2) > CACHE_LINE_SIZE;
-      if (is_in && is_out) {
+      if (is_in || is_out) {
         printf(
             "[WARN] cross cache line access,performance & program correctness "
             "may be affacted\n");
@@ -288,7 +286,7 @@ error:
 #ifdef _ENABLE_LOG
       bool is_in = (((unsigned long)in_addr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
       bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 4) > CACHE_LINE_SIZE;
-      if (is_in && is_out) {
+      if (is_in || is_out) {
         printf(
             "[WARN] cross cache line access,performance & program correctness "
             "may be affacted\n");
@@ -323,7 +321,7 @@ error:
 #if defined(_ENABLE_LOG) && !defined(__i686__)
       bool is_in = (((unsigned long)in_addr & (64 - 1)) + 8) > CACHE_LINE_SIZE;
       bool is_out = (((unsigned long)out_ptr & (64 - 1)) + 8) > CACHE_LINE_SIZE;
-      if (is_in && is_out) {
+      if (is_in || is_out) {
         printf(
             "[WARN] cross cache line access,performance & program "
             "correctness may be affacted\n");
