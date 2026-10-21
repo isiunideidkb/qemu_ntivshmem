@@ -3,11 +3,6 @@
   a abstract OS independent,rpc management API
 */
 
-#incude <stdio.h>
-#include <stdlib.h>
-#include <common/rpc_host.h>
-#include <immintrin.h>
-
 #if !defined(__STDC_VERSION__) || !defined(__GNUC__) || (__STDC_VERSION__ < 2023L)
 #error "wrong stdc version"
 #endif
@@ -80,48 +75,81 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <common/rpc_host.h>
 #include <immintrin.h>
 
 #ifdef _ENABLE_POSIX
 #include <pthread.h>
+#include <dlfcn.h>
 #endif
 
 #ifdef _ENABLE_WIN32
 #include <windows.h>
 #endif
 
-//static sometype_t internal_default_SemaphoreOrFutex = null;
-static char default_waiter(void* addr,void* rpc)
+extern struct _host_dispatch_node* host_rpc_create_node(enum host_dispatch_node_type type,
+                                                        void* start_addr,
+							unsigned int length,
+							rpc_routine_t* routine)
 {
-  host_rpc_ctx* ctx = rpc;
-  //todo check the ctx for stage HH or DHH or DH
-  //addr cannot be nullptr
-  bool is_find = false;
-  if((unsigned long)addr == ctx->start_addr)
-    is_find = true;
+  void * ptr = malloc(sizeof(struct _host_dispatch_node));
+  if(!ptr)
+    return ptr;
+  ptr->type = type;
+  ptr->start_addr = start_addr;
+  if(type == FUNC)
+    ptr->func = routine;
+  else if (type == HUGE_SHM || type == SHM)
+    ptr->length = length;
   else {
-    for(struct _host_dispatch_node cur_node = ctx->dispatch_ctx->disp_table->next; cur_node != nullptr; cur_node = p->next)
-    {
-      //check p
-      if((unsigned long)addr == p->start_addr)
-      {
-        is_find = true;
-      }
-    }
+    WARN("invalid node type");
+    free(ptr);
+    return nullptr;
   }
-  if(is_find) {
-    //todo block using internal_default_SemaphoreOrFutex
-    //todo call qemu enter_monitor wait the notifier back
-  }
-}
-static char default_notifier(unsigned int length,void* rpc)
+}							
+#pragma GCC push_options
+#pragma GCC optimize("-O0")
+void host_rpc_remove_nodes(struct _host_dispatch_node* head)
 {
-  host_rpc_ctx* ctx = rpc;
-  //todo check ctx
-  //todo check the internal_default_SemaphoreOrFutex and unblock if exists
+  struct _host_dispatch_node* cur_node = head->next;
+  struct _host_dispatch_node* prev_node = head;
+  //do not fucking eliminate this LOOP
+  for(;cur_node != nullptr; host_rpc_del_node(prev_node), (prev_node = cur_node), (cur_node = cur_node->next)){}
+  if(prev_node) //delete the one last omitted prev_node if exists
+    host_rpc_del_node(prev_node);
+}
+#pragma GCC pop_options    
+static bool is_init = false;
+static bool default_waiter(void* addr,host_rpc_ctx* rpc_ctx)
+{
+#ifdef _ENABLE_POSIX
+  if (!is_init) {
+    void* ptr = dlsym(RTLD_DEFAULT,"custom_request_init_monitor");
+    if(!ptr)
+      return false;
+    bool(*func)(struct _host_dispatch_node*) = (__typeof__(func))ptr;
+    bool ret = func(&(rpc_ctx->dispatch_ctx.disp_table));
+    if(ret)
+      is_init = true;
+    return ret;
+  }
+  void* ptr = dlsym(RTLD_DEFAULT,"custom_request_inhabit_monitor");
+  if(!ptr)
+    return false;
+  bool(*func)(void*) = (__typeof__(func))ptr;
+  return func(addr);
+#else
+  return false;
+#endif
+
+}
+static bool default_notifier(unsigned int number,host_rpc_ctx* rpc_ctx)
+{
+  return false;
 }
 //tood export wrapped default_notifier to custom_request_notify
-//calling sequence  host_wait -> qemu_inside -> qemu_add_eventfd -> qemu call notify -> host_notify -> host_wait wake up
+//calling sequence  host_wait -> qemu_inside -> qemu_add_eventfd -> qemu caught the eventfd(guest wrote the data which host want) -> directly return -> host_wait_return
+//need no check the flag
 //these custom_request_* related routine does not defined by rpc_host.c/h
 
 #endif
@@ -148,7 +176,11 @@ extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
   alloc_ctx->cur_state = INIT;
   alloc_ctx->is_umonitor = is_suppport_umonitor();
   alloc_ctx->start_addr = begin_addr;
-  //todo add default waiter and notifier if is_umonitor == false
+  //todo add default waiter and notifier if is_umonitor == false : ok
+  if(! (alloc_ctx->is_umonitor)) {
+    alloc_ctx->system_waiter = default_waiter;
+    alloc_ctx->system_notifier = default_notifier;
+  }
   return alloc_ctx;
 }
 
@@ -263,25 +295,31 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage)
     unsigned int len = cur_node->length;
     unsigned long addr = (unsigned long)cur_node->start_addr;
     if(addr == 0 ||
-       len == 0 ||
-       (addr & (64 - 1)) != 0 ||
-       (len & (len - 1)) != 0 ||
-       (len & (64 - 1)) != 0)
+       (addr & (64 - 1)) != 0)
       goto failure;
+    // put behind length checking behind the particular type checking
     switch(cur_node->type) {
       case HUGE_SHM:
+        if(len == 0 ||
+	  (len & (len - 1)) != 0 ||
+          (len & (64 - 1)) != 0 )
+          goto failure;
         if( (len % (ctx->dispatch_handshake.bytes_per_split)) != 0)
 	  goto failure;
         break;
       case SHM:
+        if(len == 0 ||
+	  (len & (len - 1)) != 0 ||
+          (len & (64 - 1)) != 0 )
+          goto failure;      
         if(len != (ctx->dispatch_handshake.bytes_per_split))
 	  goto failure;
         break;
       case FUNC:
-        if(len != (ctx->dispatch_handshake.bytes_per_split))
+        if(!len)
 	  goto failure;      
         break;
-      default: //not anyone of host_dispatch_node_type it's wrong!
+      default: //not anyone of host_dispatch_node_type
         goto failure;
     }
   }

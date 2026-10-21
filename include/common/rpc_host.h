@@ -52,9 +52,6 @@ alignas(4) struct _host_raw_dhh {
 static_assert(sizeof(struct _host_raw_hh) == 8);
 static_assert(sizeof(struct _host_raw_dhh) == 8);
 
-typedef char(*host_rpc_waiter_t)(void* addr,void* rpc_ctx);
-typedef char(*host_rpc_notifier_t)(unsigned short number,void* rpc_ctx);
-
 enum host_rpc_state {
   TERMINATE = -1,INIT = 0,HH,DHH,DH
 };
@@ -62,10 +59,18 @@ enum host_dispatch_node_type {
   HUGE_SHM = 0x0,SHM = 0x1,FUNC = 0x2
 }
 //this is not RAW!
+struct _host_dispatch_node;
+
+typedef void(*rpc_routine_t)(struct _host_dispatch_node*)
+
 struct _host_dispatch_node {
   struct _host_dispatch_node* next;
   void* start_addr;
-  alignas(8) unsigned int length;
+  alignas(8) union {
+    unsigned int length;
+    rpc_routine_t func;
+    //length and func is conflict
+  }
   alignas(8) enum host_dispatch_node_type type;
 };
 
@@ -74,8 +79,17 @@ struct _host_dispatch_node {
   Warning nullptr not checked
 */
 extern void host_rpc_create_node(); //malloc
-extern void host_rpc_concat_node(); //concat the next
-extern void host_rpc_del_node(); //delete the node created by host_rpc_create_node
+
+inline void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next)
+{
+  prev->next = next;
+}
+
+inline void host_rpc_del_node(struct _host_dispatch_node* node)
+{
+  free(node);
+}
+
 extern void host_rpc_remove_nodes(); //remove a number of consequent nodes created by host_rpc_create_node
 
 typedef struct _host_rpc_ctx {
@@ -100,6 +114,9 @@ typedef struct _host_rpc_ctx {
   host_rpc_notifier_t system_notifier; //not available while is_umonitor == true
   
 } host_rpc_ctx;
+
+typedef bool(*host_rpc_waiter_t)(void* addr,host_rpc_ctx* rpc_ctx);
+typedef bool(*host_rpc_notifier_t)(unsigned short number,host_rpc_ctx* rpc_ctx);
 
 /*
   create a ctx build from params
