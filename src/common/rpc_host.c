@@ -127,7 +127,9 @@ void host_rpc_remove_nodes(struct _host_dispatch_node* head)
   if(prev_node) //delete the one last omitted prev_node if exists
     host_rpc_del_node(prev_node);
 }
-#pragma GCC pop_options    
+#pragma GCC pop_options
+
+
 static bool is_init = false;
 static bool default_waiter(void* addr,host_rpc_ctx* rpc_ctx)
 {
@@ -161,14 +163,13 @@ static bool default_notifier(unsigned int number,host_rpc_ctx* rpc_ctx)
 //need no check the flag
 //these custom_request_* related routine does not defined by rpc_host.c/h
 
-#endif
-
 [[gnu::sysv_abi]] extern __host_wait_umonitor(void* volatile addr);
 
 
-extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,
-   	     	                      unsigned int length
-				      )
+extern host_rpc_ctx* host_rpc_new_ctx(
+  void* begin_addr,
+  unsigned int length
+)
 {  
   assert(begin_addr != nullptr &&
          length != 0 &&

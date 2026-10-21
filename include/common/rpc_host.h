@@ -78,7 +78,13 @@ struct _host_dispatch_node {
 /*
   Warning nullptr not checked
 */
-extern void host_rpc_create_node(); //malloc
+extern struct _host_dispatch_node* host_rpc_create_node(
+  enum host_dispatch_node_type type,
+  void* start_addr,
+  unsigned int length,
+  rpc_routine_t* routine
+);
+ //malloc
 
 inline void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next)
 {
@@ -90,7 +96,7 @@ inline void host_rpc_del_node(struct _host_dispatch_node* node)
   free(node);
 }
 
-extern void host_rpc_remove_nodes(); //remove a number of consequent nodes created by host_rpc_create_node
+void host_rpc_remove_nodes(struct _host_dispatch_node* head); //remove a number of consequent nodes created by host_rpc_create_node
 
 typedef struct _host_rpc_ctx {
   void* start_addr;
@@ -136,7 +142,7 @@ extern void host_rpc_new_ctx(void* begin_addr,unsigned int length);
 
   no return value,this function has no extra side-effect
 */
-extern void host_rpc_del_ctx(host_rpc_ctx*);
+extern void host_rpc_del_ctx(host_rpc_ctx* in_ptr);
 
 /*
   set rpcs system waiter,notifier
@@ -147,14 +153,14 @@ extern void host_rpc_del_ctx(host_rpc_ctx*);
 extern void host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier);
 
 /*
-  check the whether the host_rpc_ctx is ready(non-TERMINATE,handshake-able),do not check dispatch,failure when cur_state == DH,TERMINATE
+  check the whether the host_rpc_ctx is ready(non-TERMINATE,handshake-able),do not check dispatch,failure when cur_state == DH or TERMINATE
 */
-extern bool host_rpc_check(host_rpc_ctx*);
+extern bool host_rpc_check(host_rpc_ctx* ctx);
 
 /*
   check the whether the host_rpc_ctx is appropriate for different stage
 */
-extern bool host_rpc_check_stage(host_rpc_ctx*,enum host_rpc_state);
+extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage);
 
 
 /*
@@ -162,7 +168,7 @@ extern bool host_rpc_check_stage(host_rpc_ctx*,enum host_rpc_state);
   this routine blocks the program
   this routine changes the cur_state
 */
-extern void host_rpc_handshake();
+char host_rpc_handshake(host_rpc_ctx* ctx, unsigned short split_amount);
 
 /*
   perform handshake,dispatch handshake,dispatch  asyncly
