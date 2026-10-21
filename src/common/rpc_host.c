@@ -20,8 +20,13 @@
   do {                                            \
     if(cond) { /* pass */}                        \
     else { printf("[ASSERT]" content);exit(-1); } \
-  } while(0)
-  
+  } while(0);
+
+#define WRITE_HANDSHAKE(ctx_ptr)                                  \
+  do {                                                            \
+    void* _value_ptr = &(ctx_ptr->hello_handshake)                \
+    __myatomic_write(ctx_ptr->start_addr,_value_ptr,WRITE_8BYTE); \ //sharing the same address!
+  while (0);
 /*=============================*/
 #ifdef _ENABLE_WAITPKG
 
@@ -55,18 +60,22 @@
 #if !defined(_ENABLE_WAITPKG) && !defined(_ENABLE_POSIX) && !defined(_ENABLE_WIN32)
 #pragma message "detect automaticly"
 
-#if __has_include(<pthread.h>)
+#if __has_include(<pthread.h>) && __has_include(<dlfcn.h>)
+#pragma message "using POSIX API"
 #define _ENABLE_POSIX
 #elif __has_include(<windows.h>)
+#pragma message "using Win32 API"
 #define _ENABLE_WIN32
-#else
-#error "invalid platform"
 #endif
 
 #if __has_builtin(__builtin_ia32_umonitor)
+#pragma message "using waitpkg ISA"
 #define _ENABLE_WAITPKG
-#else
-#error "invalid platform"
+
+#if !defined(_ENABLE_WAITPKG) && !defined(_ENABLE_POSIX) && !defined(_ENABLE_WIN32)
+#error "can not detect the environment"
+#endif
+
 #endif
 
 #endif
@@ -77,7 +86,7 @@
 #include <stdio.h>
 #include <common/rpc_host.h>
 #include <immintrin.h>
-
+#include <common/atomicop.h>
 #ifdef _ENABLE_POSIX
 #include <pthread.h>
 #include <dlfcn.h>
@@ -226,6 +235,8 @@ extern bool host_rpc_check(host_rpc_ctx* ctx)
     goto failure;
   else if(ctx->cur_state == TERMINATE)
     goto failure;
+  if(ctx->cur_state == INIT)
+    return stat;
 /* conditional check for HH and DHH */    
   switch(ctx->cur_state) {
     case HH:
@@ -331,4 +342,102 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage)
 failure:
   stat = false;
   return stat;
+}
+
+
+static bool host_hello_handshake(host_rpc_ctx* ctx)
+{
+  WRITE_HANDSHAKE(ctx);
+  bool* cap_mask_addr = ((char*)(ctx->start_addr))+2;  
+  if(ctx->is_umonitor) {
+    __host_wait_umonitor(ctx->start_addr);
+  }
+  else {
+    if(!(ctx->system_waiter))
+      return false;
+    (ctx->system_waiter)(ctx->start_addr);
+  }
+  bool is_error = *cap_mask_addr;
+  memset(
+    &(ctx->hello_handshake),
+    0,
+    sizeof(struct _host_raw_hh)
+  );
+  WRITE_HANDSHAKE(ctx);
+  return is_error;
+}
+
+
+static bool host_dispatch_handshake(host_rpc_ctx* ctx)
+{
+  WRITE_HANDSHAKE(ctx);
+  bool* cap_mask_addr = ((char*)(ctx->start_addr))+1;  
+  if(ctx->is_umonitor) {
+    __host_wait_umonitor(ctx->start_addr);
+  }
+  else {
+    if(!(ctx->system_waiter))
+      return false;
+    (ctx->system_waiter)(ctx->start_addr);
+  }
+  bool is_error = *cap_mask_addr;
+  memset(
+    &(ctx->hello_handshake),
+    0,
+    sizeof(struct _host_raw_dhh)
+  );
+  WRITE_HANDSHAKE(ctx);
+  return is_error;
+}
+
+
+/*
+
+  exit code
+
+  0 OTHER ERROR  bool compatible
+
+  1 HH CLIENT ERROR 
+
+  2 DH CLIENT ERROR
+
+  3 OK
+
+*/
+char host_rpc_handshake(host_rpc_ctx* ctx, unsigned short split_amount)
+{
+  if (!host_rpc_check(ctx)) {
+    ((unsigned long)ctx ? (ctx->state = TERMINATE) : 6767), (stat_code = 0);
+    return (char)0;
+  }
+  if(ctx->state != INIT) {
+    (ctx->state = TERMINATE), (stat_code = 0);
+    return (char)0;
+  }
+  ctx->state = HH;
+  ctx->hello_handshake.flag = (char)1;
+  ctx->hello_handshake.cap_mask = (char)0;
+  ctx->hello_handshake.addr_length = ctx->length;
+  if (!host_rpc_check(ctx)) {
+    (ctx->state = TERMINATE), (stat_code = 0);
+    return (char)1;
+  }    
+  if (host_hello_handshake(ctx)) { //err = 1,i.e. true
+    (ctx->state = TERMINATE), (stat_code = 0);
+    return (char)1;
+  }
+  ctx->state = DHH;
+  ctx->dispatch_handshake.flag = (char)1;
+  ctx->dispatch_handshake.error_code = (char)1;
+  ctx->split_count = split_amount;
+  ctx->bytes_per_split = (unsigned int)((ctx->length) / split_amount);
+  if (!host_rpc_check(ctx)) {
+    (ctx->state = TERMINATE), (stat_code = 0);
+    return (char)2;
+  }
+  if (host_dispatch_handshake(ctx)) { //err = 1,i.e. true
+    (ctx->state = TERMINATE), (stat_code = 0);
+    return (char)2;
+  }  
+  return (char)3;
 }

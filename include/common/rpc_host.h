@@ -157,15 +157,12 @@ extern bool host_rpc_check(host_rpc_ctx*);
 extern bool host_rpc_check_stage(host_rpc_ctx*,enum host_rpc_state);
 
 
-extern void host_rpc_set_handshake();
-
 /*
   perform handshake,dispatch handshake,dispatch
   this routine blocks the program
   this routine changes the cur_state
 */
 extern void host_rpc_handshake();
-
 
 /*
   perform handshake,dispatch handshake,dispatch  asyncly

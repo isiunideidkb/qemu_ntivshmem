@@ -9,13 +9,15 @@
 
 
 .global __host_wait_umonitor
+
+
+.text
 /* sysv_abi */
 #if defined(__x86_64__)
 
 /* 
   %rdi address to be monitored
-  %rsi
-  %dl
+  %al whether it client returns true or false
 */
 __host_wait_umonitor:
   movq %rdi,-8(%rsp)
@@ -30,6 +32,16 @@ __host_wait_umonitor:
   jmp 0b
 1:
   ret
+#  movb 2(%rax),%sil
+#  sub $1,%sil
+#  jc 3f
+#2:
+#  movb $0,%al
+#  ret
+#3:
+#  movb $1,%al
+#  ret
+
 #elif defined(__i686__) || defined(__i386__)
 __host_wait_umonitor:
   movl %edi,-8(%esp)
