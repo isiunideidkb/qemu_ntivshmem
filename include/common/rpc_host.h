@@ -61,7 +61,7 @@ enum host_dispatch_node_type {
 //this is not RAW!
 struct _host_dispatch_node;
 
-typedef void(*rpc_routine_t)(struct _host_dispatch_node*)
+typedef void(*rpc_routine_t)(struct _host_dispatch_node*);
 
 struct _host_dispatch_node {
   struct _host_dispatch_node* next;
@@ -97,7 +97,9 @@ inline void host_rpc_del_node(struct _host_dispatch_node* node)
 }
 
 void host_rpc_remove_nodes(struct _host_dispatch_node* head); //remove a number of consequent nodes created by host_rpc_create_node
-
+typedef struct _host_rpc_ctx host_rpc_ctx;
+typedef bool(*host_rpc_waiter_t)(void* addr,host_rpc_ctx* rpc_ctx);
+typedef bool(*host_rpc_notifier_t)(unsigned short number,host_rpc_ctx* rpc_ctx);
 typedef struct _host_rpc_ctx {
   void* start_addr;
   unsigned int length;  
@@ -109,7 +111,6 @@ typedef struct _host_rpc_ctx {
   struct
   {
     struct _host_dispatch_node* disp_table;
-    struct _host_dispatch_node* disp_table_end;
   } dispatch_ctx;
   enum host_rpc_state cur_state;
   
@@ -120,9 +121,6 @@ typedef struct _host_rpc_ctx {
   host_rpc_notifier_t system_notifier; //not available while is_umonitor == true
   
 } host_rpc_ctx;
-
-typedef bool(*host_rpc_waiter_t)(void* addr,host_rpc_ctx* rpc_ctx);
-typedef bool(*host_rpc_notifier_t)(unsigned short number,host_rpc_ctx* rpc_ctx);
 
 /*
   create a ctx build from params
@@ -168,19 +166,24 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage);
   this routine blocks the program
   this routine changes the cur_state
 */
-char host_rpc_handshake(host_rpc_ctx* ctx, unsigned short split_amount);
+extern char host_rpc_handshake(host_rpc_ctx* ctx, unsigned short split_amount);
 
 /*
   perform handshake,dispatch handshake,dispatch  asyncly
   this routine does NOT block the program
   this routine changes the cur_state
 */
-extern void host_rpc_handshake_async();
+//extern void host_rpc_handshake_async();
 
-extern void host_rpc_set_dispatch();
+extern bool host_rpc_set_dispatch(
+  host_rpc_ctx* ctx,
+  struct _host_dispatch_node* attatched_node
+);
 /*
   perform dispatch,requires handshake before
   this routine does NOT block the program
   this routine changes the cur_state]
 */
-extern void host_rpc_dispatch();
+extern bool host_rpc_dispatch(
+  host_rpc_ctx* ctx
+);
