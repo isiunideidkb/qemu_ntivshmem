@@ -24,7 +24,7 @@
 */
 
 
-alignas(4) struct _host_raw_hh {
+struct _host_raw_hh {
   union {
     struct {
       char flag;
@@ -37,7 +37,7 @@ alignas(4) struct _host_raw_hh {
   unsigned int addr_length;
 }; //hello handshake
 
-alignas(4) struct _host_raw_dhh {
+struct _host_raw_dhh {
   alignas(4) union {
     struct {
       char flag;
@@ -57,7 +57,7 @@ enum host_rpc_state {
 };
 enum host_dispatch_node_type {
   HUGE_SHM = 0x0,SHM = 0x1,FUNC = 0x2
-}
+};
 //this is not RAW!
 struct _host_dispatch_node;
 
@@ -70,7 +70,7 @@ struct _host_dispatch_node {
     unsigned int length;
     rpc_routine_t func;
     //length and func is conflict
-  }
+  };
   alignas(8) enum host_dispatch_node_type type;
 };
 
@@ -131,7 +131,7 @@ typedef struct _host_rpc_ctx {
 
   return: available ptr or nullptr
 */
-extern void host_rpc_new_ctx(void* begin_addr,unsigned int length);
+extern host_rpc_ctx* host_rpc_new_ctx(void* begin_addr,unsigned int length);
 
 /*
   delete a ctx created by host_rpc_new_ctx
@@ -148,7 +148,7 @@ extern void host_rpc_del_ctx(host_rpc_ctx* in_ptr);
 
   see host_rpc.c,here's a example of introducing the system waiter,notifier
 */
-extern void host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier);
+extern bool host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_rpc_notifier_t notifier);
 
 /*
   check the whether the host_rpc_ctx is ready(non-TERMINATE,handshake-able),do not check dispatch,failure when cur_state == DH or TERMINATE
