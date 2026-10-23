@@ -37,8 +37,8 @@ __host_wait_umonitor:
   add $1,%ecx
 0:
   umonitor %rdi
-  movb $0,%bl
-  movb $0,%al
+  movb $1,%bl
+  movb $1,%al
   lock cmpxchgb %bl,(%rdi)
   jne 1f
   umwait %ecx
@@ -46,6 +46,7 @@ __host_wait_umonitor:
 1:
   sub $16,%rsp
   pop %rbx
+  add $8,%rsp
   ret
 #  movb 2(%rax),%sil
 #  sub $1,%sil
@@ -76,15 +77,16 @@ __host_wait_umonitor:
   add $1,%ecx
 0:
   umonitor %edi
-  movb $0,%bl
-  movb $0,%al
+  movb $1,%bl
+  movb $1,%al
   lock cmpxchgb %bl,(%edi)
   jne 1f
   umwait %ecx
   jmp 0b
 1:
-  sub $8,%rsp
+  sub $8,%esp
   popl %ebx
+  add $4,%esp
   ret
 #else
 #error "invalid platform!"

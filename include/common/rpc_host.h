@@ -7,7 +7,12 @@
 这个系列不需要calling convention,因为需要指示的一般都是出现在编译器不知道的情况 例如跨编译器 或者汇编实现 而这个的函数定义和实现(.c .h)都是在同一个编译器内部 所以不需要指示 编译器会自动选择并且对应 不同的平台编译不同的就可以了
 
 */
+
+
+
 #pragma once
+#include <stdio.h>
+#include <stdlib.h>
 #if !defined(__STDC_VERSION__) || !defined(__GNUC__) || (__STDC_VERSION__ < 2023L)
 #error "wrong platform"
 #endif
@@ -86,15 +91,9 @@ extern struct _host_dispatch_node* host_rpc_create_node(
 );
  //malloc
 
-inline void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next)
-{
-  prev->next = next;
-}
+extern void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next);
 
-inline void host_rpc_del_node(struct _host_dispatch_node* node)
-{
-  free(node);
-}
+extern void host_rpc_del_node(struct _host_dispatch_node* node);
 
 void host_rpc_remove_nodes(struct _host_dispatch_node* head); //remove a number of consequent nodes created by host_rpc_create_node
 typedef struct _host_rpc_ctx host_rpc_ctx;

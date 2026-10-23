@@ -19,7 +19,7 @@
 #define assert(cond,content)                      \
   do {                                            \
     if(cond) { /* pass */}                        \
-    else { printf("[ASSERT]" content);exit(-1); } \
+    else { printf("[ASSERT]"content"\n") ;exit(-1); } \
   } while(0);
 
 #define WRITE_HANDSHAKE(ctx_ptr)                                  \
@@ -86,6 +86,19 @@
 [[gnu::sysv_abi]] extern void __host_wait_umonitor(void* volatile addr);
 
 
+
+extern void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next)
+{
+  prev->next = next;
+  return;
+}
+
+
+extern void host_rpc_del_node(struct _host_dispatch_node* node)
+{
+  free(node);
+  return;
+}
 
 extern struct _host_dispatch_node* host_rpc_create_node(enum host_dispatch_node_type type,
                                                         void* start_addr,
@@ -163,6 +176,7 @@ extern host_rpc_ctx* host_rpc_new_ctx(
   assert(begin_addr != nullptr &&
          length != 0 &&
 	 ((unsigned long)begin_addr & (64 - 1)) == 0 &&
+	 (length >= (32 * 1024 * 1024)) &&
 	 (length & (64 - 1)) == 0 &&
 	 (length & (length - 1)) == 0,"invalid param");
   host_rpc_ctx* alloc_ctx = malloc(sizeof(host_rpc_ctx));
@@ -487,7 +501,7 @@ LOOP:
   goto LOOP;
 //  free(ptr_ptr);
   pthread_exit(nullptr);
-  return nullptr;
+//  return nullptr;
 }
 
 //wrapper
