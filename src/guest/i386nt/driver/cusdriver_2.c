@@ -115,7 +115,7 @@ monitor_init:
 // todo wait with ext
 // todo CR0 check to avoid non-WB cache access : ok
 
-[[gnu::cdecl]] void bool CorrectCache() {
+[[gnu::cdecl]] bool CorrectCache() {
   CusLog("=====Correct Cache=====");
   unsigned int old_cr0;
   __asm__ volatile("movl %%cr0,%[out_parm] \n\t"
@@ -144,7 +144,7 @@ monitor_init:
         : [in_param] "rm"(new_cr0)
         : "edi");
   }
-  return;
+  return true;
 }
 
 //this method may block potentially
@@ -157,7 +157,6 @@ monitor_init:
     return;
 //todo check CPUID.05H.EDX[7:4]  c-state count
   __asm__ volatile (
-    ".arch .i686 \n\t"
     ".arch .sse3 \n\t"
     "push %%eax \n\t"
     "push %%ecx \n\t"
@@ -169,15 +168,15 @@ monitor_init:
     "movl $0,%%edx \n\t" //ext reserved 0
     "monitor \n\t" //must prior to CMPXCHG!!!
     "movb $1,%%al \n\t"
-    "movb $1,%%sil \n\t"
-    "lock cmpxchgb %%sil,(%%edi) \n\t"
+    "movb $1,%%dl \n\t"
+    "lock cmpxchgb %%dl,(%%edi) \n\t"
     "jnz 1f \n\t"
     "movl $0,%%ecx \n\t" //ext can't break up even it's INTERRUPT,must be perform after a existsing armed MONITOR instruction
     "movl $0b00001111,%%eax \n\t" //C0
     "mwait \n\t"
     "jmp 0b \n\t"
     "1: \n\t"
-    "cmp $0,%%sil \n\t"
+    "cmp $0,%%dl \n\t"
     "jz 2f \n\t"
     "jmp 0b \n\t"
     "2: \n\t"
@@ -199,7 +198,6 @@ monitor_init:
   if(!IsSupportMonitor())
     return;
   __asm__ volatile (
-    ".arch .i686 \n\t"
     ".arch .sse3 \n\t"  
     "push %%eax \n\t"
     "push %%ecx \n\t"
@@ -211,15 +209,15 @@ monitor_init:
     "movl $0,%%edx \n\t"
     "monitor \n\t"
     "movb $0,%%al \n\t"
-    "movb $0,%%sil \n\t"
-    "lock cmpxchgb %%sil,(%%edi) \n\t"
+    "movb $0,%%dl \n\t"
+    "lock cmpxchgb %%dl,(%%edi) \n\t"
     "jnz 1f \n\t"
     "movl $0,%%ecx \n\t"
     "movl $0b00001111,%%eax \n\t"
     "mwait \n\t" 
     "jmp 0b \n\t"
     "1: \n\t"
-    "cmp $1,%%sil \n\t"
+    "cmp $1,%%dl \n\t"
     "jz 2f \n\t"
     "jmp 0b \n\t"
     "2: \n\t"
@@ -228,7 +226,7 @@ monitor_init:
     "pop %%eax \n\t"
     : /* 没有要读的呢 */
     : [addr]"rm"(addr)
-    : "edi","esi"
+    : "edi"
   );
   return;
 }

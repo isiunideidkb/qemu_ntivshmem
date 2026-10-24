@@ -367,9 +367,9 @@ static bool host_hello_handshake(host_rpc_ctx* ctx)
   else {
     if(!(ctx->system_waiter))
       return false;
-    (ctx->system_waiter)(ctx->start_addr,ctx);
+    bool sys_waiter_stat = (ctx->system_waiter)(ctx->start_addr,ctx);
   }
-  bool is_error = *cap_mask_addr;
+  bool is_error = *cap_mask_addr | sys_waiter_stat;
   memset(
     &(ctx->hello_handshake),
     0,
@@ -390,9 +390,13 @@ static bool host_dispatch_handshake(host_rpc_ctx* ctx)
     LOG("using system waiter");
     if(!(ctx->system_waiter))
       return false;
-    (ctx->system_waiter)(ctx->start_addr,ctx);
+    bool sys_waiter_stat = (ctx->system_waiter)(ctx->start_addr,ctx);
+#ifdef _ENABLE_LOG
+    if(!sys_waiter_stat)
+      WARN("system canot monitor the addr");
+#endif
   }
-  bool is_error = *cap_mask_addr;
+  bool is_error = *cap_mask_addr | sys_waiter_stat;
   struct _host_raw_dhh* padded_sample = { 0 };
   __myatomic_write(ctx->start_addr,padded_sample,WRITE_8BYTE);
   //reserve the dhh for next stage checking(DH checking will access the field)
