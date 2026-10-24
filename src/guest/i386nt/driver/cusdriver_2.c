@@ -46,7 +46,7 @@ See IA33 SDM Volume 3, Chapter 11.10.4
 #include <immintrin.h>
 extern void CusLog(const char* fmt, ...);
 static_assert(sizeof(unsigned int) == 4);
-[[gnu::cdecl]] bool IsSupportMonitor() {
+static inline bool IsSupportMonitor() {
   // MONITOR is of SSE3 ISA,making sure OS enabled the CR4.OSFXSR
   unsigned int cr4 = 0;
   __asm__ volatile("movl %%cr4,%[out_cr4]"
@@ -64,7 +64,7 @@ static_assert(sizeof(unsigned int) == 4);
   return false;
 }
 
-[[gnu::cdecl]] bool MonitorInit() {
+[[gnu::cdecl]] extern bool MonitorInit() {
   unsigned int eax, ebx, ecx, edx;
   unsigned int out_eax, out_edx;
 monitor_init:
@@ -110,24 +110,12 @@ monitor_init:
   CusLog("[MONITOR] LargestMonitorLineSize: %d", LargestMonitorLineSizeLog);
   return true;
 }
-[[gnu::target("sse3"),gnu::cdecl]] void MonitorAddr(void* addr) {
-  // todo advance extension support see IA32SDM, do not using stack addr space
-  // for 1th param
-  __builtin_ia32_monitor(addr, 0, 0);
-  return;
-}
-
-[[gnu::target("sse3"),gnu::cdecl]] void WaitAddr() {
-  // todo advance extension support see IA32SDM
-  __builtin_ia32_mwait(0, 0);
-  return;
-}
 
 // todo monitor addr with ext
 // todo wait with ext
 // todo CR0 check to avoid non-WB cache access : ok
 
-[[gnu::cdecl]] void CorrectCache() {
+[[gnu::cdecl]] void bool CorrectCache() {
   CusLog("=====Correct Cache=====");
   unsigned int old_cr0;
   __asm__ volatile("movl %%cr0,%[out_parm] \n\t"
@@ -156,5 +144,91 @@ monitor_init:
         : [in_param] "rm"(new_cr0)
         : "edi");
   }
+  return;
+}
+
+//this method may block potentially
+/*
+  
+*/
+
+[[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilZ(void* addr) {
+  if(!IsSupportMonitor())
+    return;
+//todo check CPUID.05H.EDX[7:4]  c-state count
+  __asm__ volatile (
+    ".arch .i686 \n\t"
+    ".arch .sse3 \n\t"
+    "push %%eax \n\t"
+    "push %%ecx \n\t"
+    "push %%edx \n\t"
+    "movl %[addr],%%edi \n\t"
+    "0: \n\t"
+    "movl %%edi,%%eax \n\t" //addr
+    "movl $0,%%ecx \n\t" //ext reserved 0
+    "movl $0,%%edx \n\t" //ext reserved 0
+    "monitor \n\t" //must prior to CMPXCHG!!!
+    "movb $1,%%al \n\t"
+    "movb $1,%%sil \n\t"
+    "lock cmpxchgb %%sil,(%%edi) \n\t"
+    "jnz 1f \n\t"
+    "movl $0,%%ecx \n\t" //ext can't break up even it's INTERRUPT,must be perform after a existsing armed MONITOR instruction
+    "movl $0b00001111,%%eax \n\t" //C0
+    "mwait \n\t"
+    "jmp 0b \n\t"
+    "1: \n\t"
+    "cmp $0,%%sil \n\t"
+    "jz 2f \n\t"
+    "jmp 0b \n\t"
+    "2: \n\t"
+    "pop %%edx \n\t"
+    "pop %%ecx \n\t"
+    "pop %%eax \n\t"
+    : /* 没有要读的呢 */
+    : [addr]"rm"(addr)
+    : "edi","esi"
+  );
+
+  //todo monitor until zero/one
+  return;
+}
+
+
+
+[[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilO(void* addr) {
+  if(!IsSupportMonitor())
+    return;
+  __asm__ volatile (
+    ".arch .i686 \n\t"
+    ".arch .sse3 \n\t"  
+    "push %%eax \n\t"
+    "push %%ecx \n\t"
+    "push %%edx \n\t"  
+    "movl %[addr],%%edi \n\t"
+    "0: \n\t"    
+    "movl %%edi,%%eax \n\t"
+    "movl $0,%%ecx \n\t"
+    "movl $0,%%edx \n\t"
+    "monitor \n\t"
+    "movb $0,%%al \n\t"
+    "movb $0,%%sil \n\t"
+    "lock cmpxchgb %%sil,(%%edi) \n\t"
+    "jnz 1f \n\t"
+    "movl $0,%%ecx \n\t"
+    "movl $0b00001111,%%eax \n\t"
+    "mwait \n\t" 
+    "jmp 0b \n\t"
+    "1: \n\t"
+    "cmp $1,%%sil \n\t"
+    "jz 2f \n\t"
+    "jmp 0b \n\t"
+    "2: \n\t"
+    "pop %%edx \n\t"
+    "pop %%ecx \n\t"
+    "pop %%eax \n\t"
+    : /* 没有要读的呢 */
+    : [addr]"rm"(addr)
+    : "edi","esi"
+  );
   return;
 }

@@ -1,4 +1,6 @@
 // todo add MONITOR/MWAIT support & ioctl
+
+
 // todo virtaddr convert userspace_virt_addr to phys_addr ioctl for userspace
 // process with specifying length,NonPaged Required,and lock(or modify) this
 // page to non paged locked todo optimize read BAR register operations,more
@@ -6,6 +8,80 @@
 // zero,check MMIO enable bit
 
 // todo monitor/mwait ioctl wrapper for systesm specific waiter
+
+
+
+
+/*
+
+FOR LLM:
+
+顺便看看下面源代码的todo 你不需要在意是正确的还是错误的 请不要纠正你认为的错误 按照我的大致节奏 然后呢这是以下微调的
+0. MmProbeAndLockPages(g_CusMdlPtr, KernelMode, IoModifyAccess); 这个不要 换成那个MDL的就够了 因为默认映射的本来就是非pages的 然后呢 换成那个buildMdlFromNonPagedPoll给这个MDL填充对应内核虚拟地址空间的PFN就完全够了 这个多此一举还浪费东西
+1. 在探测BAR2 BAR3的时候 请才之前务必检查mmio 使能位 然后呢 
+2. 删掉这些无意义的垃圾注释
+3. 添加一个固定的一系列的服务于下面的IOCTL code 其他不认识的就返回错误 正常的就会写 全部都是用SystemBuffered! 这个其他的无所屌谓了
+3.1 添加PhysicalAddr直通的IOCTL 在IOCTL 你自定义搞 反正不要返回错误 错误用NULL表示 SystemBuffered懂了没有 然后呢 这个参数呢 就是用一个4字节(视平台而定 这里4字节 也就是sizeof(void*))
+3.1.2 具体怎么做 就是我们在进入的时候 由于会传递一个字节进来这个是一个指针 我们IoAllocateMdl 然后呢 我们直接走 MmProbeAndLockPages(pmdl,UserMode,IoModifyAccess); 带上SEH和错误处理  然后走MmGetSystemAddressForMdlSafe(pmdl,NormalPagePriority); 错误会返回NULL 注意了嗷  无论错误还是怎么 都无脑 丢给用户处理 写到这个参数上 完毕了! 注意！不会Unlock 所以必须要可以malloc free的 这个就不是内核可以管的了是一个协议床问题
+3.1.3 再做一个MonitorAndWaitUntilZ的 IoCtl 传进来一个固定4字节的offset+固定4byte的statuscode 是固定4byte的 注意了是一个无符号的int,unsigned int,然后是偏移！实际上我们走这个Monitor 实际上是走的 (g_Bar2BaseAddr-offset)这个地址 然后走我的 MonitorAddrAndWaitUntilZ 如果IsSupportMonitor是0 status code是0 否则是1 每次完成都必须写
+3.1.3 再做一个MonitorAndWaitUntilO的 IoCtl 和上面同理 不过走的是 MonitorAddrAndWaitUntilO
+3.2 在AddDevice CusLogInit之后加入MonitorInit,赋值给IsSupportMonitor 还有执行extern void __cdecl CorrectCache();,注意必须在后面 也就是CusLogInit执行初始化后后面 
+
+尽量C99兼容 老样子 不要动我声明的 不要私自给定义 要注意防御性编程 最后在生成的时候保留纯ASCII字符不要中文
+提高Robustness 修复BUG 适用于老WDK的7.1 5.1的
+
+MJ_CLEANUP加入
+
+
+然后这个是PCI配置空间的一些文档 请参考这个不要看网上的!
+typedef enum _MEMORY_CACHING_TYPE {
+  MmNonCached,
+  MmCached,
+  MmWriteCombined
+} MEMORY_CACHING_TYPE;
+typedef struct _PCI_COMMON_CONFIG {
+  USHORT  VendorID;
+  USHORT  DeviceID;
+  USHORT  Command; //todo 检查MMIO使能位噢
+  USHORT  Status;
+  UCHAR  RevisionID;
+  UCHAR  ProgIf;
+  UCHAR  SubClass;
+  UCHAR  BaseClass;
+  UCHAR  CacheLineSize;
+  UCHAR  LatencyTimer;
+  UCHAR  HeaderType;
+  UCHAR  BIST;
+==========分割线==========
+  union {
+     struct _PCI_HEADER_TYPE_0 {
+       ULONG  BaseAddresses[PCI_TYPE0_ADDRESSES]; #define PCI_TYPE0_ADDRESSES             6  这个应该就是BAR寄存器地址了
+       ULONG  Reserved1[2];
+       ULONG  ROMBaseAddress;
+       ULONG  Reserved2[2];
+       UCHAR  InterruptLine;
+       UCHAR  InterruptPin;
+       UCHAR  MinimumGrant;
+       UCHAR  MaximumLatency;
+     } type0;
+   } u;
+   UCHAR  DeviceSpecific[192];
+} PCI_COMMON_CONFIG, *PPCI_COMMON_CONFIG;
+==========分割线==========
+typedef union _LARGE_INTEGER {
+    struct {
+        ULONG LowPart;
+        LONG HighPart;
+    };
+    struct {
+        ULONG LowPart;
+        LONG HighPart;
+    } u;
+    LONGLONG QuadPart;
+};
+
+
+*/
 
 /* ============================================================================
  * cusdriver.c
@@ -85,12 +161,14 @@
 #ifndef ACCESS_FROM_CTL_CODE
 #define ACCESS_FROM_CTL_CODE(ctl) (((ctl) >> 14) & 0x3u)
 #endif
-
-extern _Bool __cdecl IsSupportMonitor();
+/*
+  !!Custom!!
+*/
+static _Bool IsSupportMonitor = 0;
 extern _Bool __cdecl MonitorInit();
-extern void __cdecl MonitorAddr(void* addr);
-extern void __cdecl WaitAddr();
 extern void __cdecl CorrectCache();
+extern void __cdecl MonitorAddrAndWaitUntilZ();
+extern void __cdecl MonitorAddrAndWaitUntilO();
 
 /* ------------------------------------------------------------------------
  * Device extension
@@ -731,7 +809,7 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   MmBuildMdlForNonPagedPool(g_CusMdlPtr);
 
   __try {
-    MmProbeAndLockPages(g_CusMdlPtr, KernelMode, IoModifyAccess);
+//    MmProbeAndLockPages(g_CusMdlPtr, KernelMode, IoModifyAccess);
 
     tmpUserAddr = MmMapLockedPagesSpecifyCache(g_CusMdlPtr, UserMode, MmCached,
                                                NULL, 0, NormalPagePriority);
