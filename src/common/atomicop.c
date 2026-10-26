@@ -32,10 +32,7 @@
   out old value see IA32SDM strategy of WB memory caching,memory order,bus
   locks
 
-  why uses *femce memory barrier instruction,the typical processor order will
-  reorder read before write although the write executed and the operation all
-  atomic(apparently regardless of atomic),maybe due to cache coherencylatency?
-  i don't know. but the *fence can prevent the read&write reordering
+  实际上并不需要sfence,lfence，我们不需要担心重排序 只要在写入后并没有other location的read
 
   macro options:
   _ENABLE_LOG : enables log for read option, recommended
@@ -95,7 +92,6 @@ static void _backtrace_and_exit() {
           "movq %[addr],%%rax \n\t"
           "movb (%[value_addr]),%%dl \n\t"  // load from value_addr
           "lock xchg %%dl,(%%rax) \n\t"
-          "mfence \n\t"
           // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
@@ -104,7 +100,6 @@ static void _backtrace_and_exit() {
           "movl %[addr],%%eax \n\t"
           "movb (%[value_addr]),%%dl \n\t"  // load from value_addr
           "lock xchg %%dl,(%%eax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "eax", "dl");
@@ -119,7 +114,6 @@ static void _backtrace_and_exit() {
           "movq %[addr],%%rax \n\t"
           "movw (%[value_addr]),%%dx \n\t"  // load from value_addr
           "lock xchg %%dx,(%%rax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "rax", "dx");
@@ -127,7 +121,6 @@ static void _backtrace_and_exit() {
           "movl %[addr],%%eax \n\t"
           "movw (%[value_addr]),%%dx \n\t"  // load from value_addr
           "lock xchg %%dx,(%%eax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "eax", "dx");
@@ -142,7 +135,6 @@ static void _backtrace_and_exit() {
           "movq %[addr],%%rax \n\t"
           "movl (%[value_addr]),%%edx \n\t"  // load from value_addr
           "lock xchg %%edx,(%%rax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "rax", "edx");
@@ -150,7 +142,6 @@ static void _backtrace_and_exit() {
           "movl %[addr],%%eax \n\t"
           "movl (%[value_addr]),%%edx \n\t"  // load from value_addr
           "lock xchg %%edx,(%%eax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "eax", "edx");
@@ -165,7 +156,6 @@ static void _backtrace_and_exit() {
           "movq %[addr],%%rax \n\t"
           "movq (%[value_addr]),%%rdx \n\t"  // load from value_addr
           "lock xchg %%rdx,(%%rax) \n\t"
-          "mfence \n\t"  // old value is discarded
           :
           : [addr] "rm"(in_addr), [value_addr] "r"(in_value_addr)
           : "memory", "rax", "rdx");
@@ -182,7 +172,6 @@ static void _backtrace_and_exit() {
           "movl $0,%%edx \n\t"
           "0: \n\t"
           "lock cmpxchg8b (%%esi) \n\t"
-          "mfence \n\t"
           "jz 1f \n\t"  // if euqal directly pass,if not just retry
           "jmp 0b \n\t"
           "1: \n\t"  // if equal directly write
@@ -228,7 +217,6 @@ error:
 #ifdef __x86_64__
           "movq %[addr],%%rax \n\t"
           "movb (%%rax),%%dl \n\t"
-          "lfence \n\t"
           "movb %%dl,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -236,7 +224,6 @@ error:
 #elif defined(__i686__)
           "movl %[addr],%%eax \n\t"
           "movb (%%eax),%%dl \n\t"
-          "lfence \n\t"
           "movb %%dl,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -263,7 +250,6 @@ error:
 #ifdef __x86_64__
           "movq %[addr],%%rax \n\t"
           "movw (%%rax),%%dx \n\t"
-          "lfence \n\t"
           "movw %%dx,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -271,7 +257,6 @@ error:
 #elif defined(__i686__)
           "movl %[addr],%%eax \n\t"
           "movw (%%eax),%%dx \n\t"
-          "lfence \n\t"
           "movw %%dx,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -298,7 +283,6 @@ error:
 #ifdef __x86_64__
           "movq %[addr],%%rax \n\t"
           "movl (%%rax),%%edx \n\t"
-          "lfence \n\t"
           "movl %%edx,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -306,7 +290,6 @@ error:
 #elif defined(__i686__)
           "movl %[addr],%%eax \n\t"
           "movl (%%eax),%%edx \n\t"
-          "lfence \n\t"
           "movl %%edx,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -333,7 +316,6 @@ error:
 #ifdef __x86_64__
           "movq %[addr],%%rax \n\t"
           "movq (%%rax),%%rdx \n\t"
-          "lfence \n\t"
           "movq %%rdx,(%[out_ptr]) \n\t"
           :
           : [addr] "rm"(in_addr), [out_ptr] "r"(out_ptr)
@@ -352,7 +334,6 @@ error:
           "movl $0,%%ecx \n\t"
           "movl $0,%%edx \n\t"
           "lock cmpxchg8b (%%esi) \n\t"
-          "mfence \n\t"
           "movl %%eax,(%%edi) \n\t"   // low 4byte
           "movl %%edx,4(%%edi) \n\t"  // high 4byte
           "pop %%edx \n\t"
