@@ -13,6 +13,8 @@
 #define READ_4BYTE 2
 #define WRITE_8BYTE 3
 #define READ_8BYTE 3
+//hack
+#define RPC_READ_BARRIER() __asm__ volatile ("mfence\n\t" ::: "memory");
 
 //todo switch to assebmly implementation
 [[gnu::sysv_abi]] bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
