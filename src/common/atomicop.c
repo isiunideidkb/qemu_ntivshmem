@@ -38,7 +38,7 @@
   _ENABLE_LOG : enables log for read option, recommended
   _USE_CMPXCHG: use cmpxchg for global atomic operation, enabled by default
   _USE_MOV: use mov for read for global atomic operation
-  至少来说 write会有一个隐式的屏障 如果你是 write-read 你可以省去屏障 如果你是直接没有write后的read你应该使用 带有屏障的RPC_READ_BARRIER 宏
+  至少来说 write会有一个隐式的屏障 如果你是 write-read 你可以省去屏障 如果你读的地方期待的WRITE并没有使用LOCK指令换句话说也就是内建写的 那么你应该额外加上 屏障宏RPC_READ_BARRIER
   
 */
 
