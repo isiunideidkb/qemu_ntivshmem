@@ -1,3 +1,4 @@
+#pragma once
 #ifndef __GNUC__
 #error "wrong platform"
 #endif

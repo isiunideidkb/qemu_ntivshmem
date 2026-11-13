@@ -215,6 +215,8 @@ extern bool host_rpc_check(host_rpc_ctx* ctx)
 /* base check */  
   if(ctx == nullptr)
     goto failure;
+  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
+    goto failure;    
   unsigned long _tmp_addr = (unsigned long)ctx->start_addr;
   if(_tmp_addr == 0 ||
      (_tmp_addr & (64 - 1)) != 0)
@@ -272,6 +274,8 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage)
      stage == DHH)
     return host_rpc_check(ctx) && (unsigned long)ctx ? ( ctx->cur_state == stage ) : false;
   if(ctx == nullptr)
+    goto failure;
+  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
     goto failure;
   if(stage == TERMINATE) {    
     LOG("check whether it's appropriate for TERMINATE");
@@ -362,11 +366,10 @@ static bool host_hello_handshake(host_rpc_ctx* ctx)
   bool* cap_mask_addr = ((bool*)(ctx->start_addr))+2;  
   if(ctx->is_umonitor) {
     __host_wait_umonitor(ctx->start_addr);
-    return false;
   }
   else {
     if(!(ctx->system_waiter))
-      return false;
+      return !false;
     bool sys_waiter_stat = (ctx->system_waiter)(ctx->start_addr,ctx);
   }
   bool is_error = *cap_mask_addr | sys_waiter_stat;
@@ -389,7 +392,7 @@ static bool host_dispatch_handshake(host_rpc_ctx* ctx)
   else {
     LOG("using system waiter");
     if(!(ctx->system_waiter))
-      return false;
+      return !false;
     bool sys_waiter_stat = (ctx->system_waiter)(ctx->start_addr,ctx);
 #ifdef _ENABLE_LOG
     if(!sys_waiter_stat)
