@@ -6,6 +6,9 @@
 ./guest/* : 不同平台的guest的实现
 ./host_patch/* : 不同平台的host实现
 
+版本 C23 + C99(WDM)
+编译器 GCC(MinGW) ONLY
+没有太多的限制 不过请使用nullptr代替NULL,(void*)0ul 不要include stdbool.h 不要include stddef.h 自带bool,true,flase keyword
 
 
 该项目使用qemu的ivshmem-plain设备当作共享内存 基于这块共享内存来进行远程过程调用 当然！你完全可以使用非QEMU的 ./src/common 是平台无关的一套基于共享内存的API 你甚至可以在线程内部 跨进程（SHM）
@@ -59,6 +62,7 @@ RETURN
 我们不考虑system waiter第二个例子 即便从x86理论上来看不会重排 但是 如果考虑某些CPU乱序执行的情况 do MONITOR可能和fetch同时或者先后发生 如果写入在fetch后 MONITOR前 问题就大了 很可能出现 读不到 MONITOR不到 会出现对方写了但是会永久卡死的情况(两边都在等) 不过这种情况发生的概率更少但是不能排除
 第一个例子更加明显 IF后的跳转 如果写入发生了也是后于 读取和MONITOR 完蛋了 读到就值 实际上MONITOR也不到新值但是就是发生了
 所以我使用了cmpxchg 代替ifelse
+更多见 ./src/common/atomicop.c的注释
 
 !!缓存问题!!
 全部情况都必须WB WDM驱动和具体的映射都必须当成WB  全局绝对不允许使用MOVNT等指令 以及映射成非WB缓存 否则会出现严重的数据问题

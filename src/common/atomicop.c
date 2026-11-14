@@ -59,6 +59,9 @@
 
 #define CACHE_LINE_SIZE 64
 
+
+
+[[noreturn]]
 static void _backtrace_and_exit() {
 #ifdef __gnu_linux__
   void* stack_ptrs[10];
@@ -75,17 +78,91 @@ static void _backtrace_and_exit() {
   exit(-1);
 }
 
+
+
+//ERMS
+static void __myatomic_memcpy_cached_rep(void* src,void* dest,unsigned long length) {
+  bool src_err = ((unsigned long)src & (64 - 1));
+  bool dest_err = ((unsigned long)dest & (64 - 1));
+  bool len_err = (len & (64 - 1));
+  if(src_err || dest_err || len_err)
+    _backtrace_and_exit();
+  asm volatile(
+    "movq %[src],%%rsi \n\t"
+    "movq %[dest],%%rdi \n\t"
+    "mov %[length],%%rcx \n\t"
+    "rep movsb \n\t"
+    "mfence \n\t" //为什么不sfence 因为在这里我们要求的不仅是写入全部完毕 我们还要求不会重排 也就是写入一定先于所有读不重排 sfence无法保证
+    : /* nothing */
+    : [src]"rm"(src),[dest]"rm"(dest),[length]"rm"(length)
+    : "rdi","rsi","rcx"
+  );
+  return;
+}
+
+
+#pragma GCC push_options
+#pragma GCC target("avx")
+//使用ymm0 ymm1
+static void __myatomic_memcpy_nt_avx(void* src,void* dest,unsigned long length) {
+  bool src_err = ((unsigned long)src & (64 - 1));
+  bool dest_err = ((unsigned long)dest & (64 - 1));
+  bool len_err = (length & (64 - 1));
+  if(src_err || dest_err || len_err)
+    _backtrace_and_exit();  
+  for(unsigned long offset = 0; offset < length; offset += 64) {
+    asm volatile(
+      "vmovdqa (%[base],%[off],1),%%ymm0 \n\t"
+      "vmovdqa 32(%[base],%[off],1),%%ymm1 \n\t"
+      "vmovntdq %%ymm0,(%[dest],%[off],1) \n\t"
+      "vmovntdq %%ymm1,32(%[dest],%[off],1) \n\t"
+      "sfence \n\t"
+      "clflushopt (%[dest],%[off],1)\n\t"
+      :
+      : [base] "r"(src), [dest] "r"(dest), [off] "r"(offset)
+      : "ymm0", "ymm1"
+    );
+  }
+}
+#pragma GCC pop_options
+
+//如果不支持AVX 可以试试SSE2 xmm(128) 16字节
+#pragma GCC push_options
+#pragma GCC target("sse2")
+static void __myatomic_memcpy_nt_sse(void* src,void* dest,unsigned long length) {
+  bool src_err = ((unsigned long)src & (64 - 1));
+  bool dest_err = ((unsigned long)dest & (64 - 1));
+  bool len_err = (length & (64 - 1));
+  if(src_err || dest_err || len_err)
+    _backtrace_and_exit();  
+  //单次step 64字节 xmm0 xmm1 xmm2 xmm3
+  for(unsigned long offset = 0; offset < length; offset += 64) {
+    asm volatile(
+      "movdqa (%[base],%[off],1),%%xmm0 \n\t"
+      "movdqa 16(%[base],%[off],1),%%xmm1 \n\t"
+      "movdqa 32(%[base],%[off],1),%%xmm2 \n\t"
+      "movdqa 48(%[base],%[off],1),%%xmm3 \n\t"
+      "movntdq %%xmm0,(%[dest],%[off],1) \n\t" //注意这是提示不是真的 所以后面尽量需要sfence和clflushopt
+      "movntdq %%xmm1,16(%[dest],%[off],1) \n\t"
+      "movntdq %%xmm2,32(%[dest],%[off],1) \n\t"
+      "movntdq %%xmm3,48(%[dest],%[off],1) \n\t"
+      "sfence \n\t"
+      "clflushopt (%[dest],%[off],1)\n\t"
+      :
+      : [base] "r"(src), [dest] "r"(dest), [off] "r"(offset)
+      : "xmm0", "xmm1", "xmm2", "xmm3"
+    );
+  }
+}
+#pragma GCC pop_options
+
+
+
 [[gnu::sysv_abi]] bool __myatomic_write(void* volatile _in_addr, void* volatile _in_value_addr,
                       unsigned int number) {
   if ((_in_addr == nullptr) || (_in_value_addr == nullptr)) goto error;
   register void* in_addr = _in_addr;
   register void* in_value_addr = _in_value_addr;  // must be a register variable
-  __asm__ volatile(
-      "prefetcht0 (%[in_value_addr]) \n\t"
-      "prefetcht0 (%[in_addr]) \n\t"
-      :
-      : [in_addr] "r"(in_addr), [in_value_addr] "r"(in_value_addr)
-      :);
   switch (number) {
     case 0:
       __asm__ volatile(
@@ -205,12 +282,6 @@ error:
   if ((in_addr == nullptr) || (out_addr == nullptr)) goto error;
 
   register void* out_ptr = out_addr;
-  __asm__ volatile(
-      "prefetcht0 (%[in_value_addr]) \n\t"
-      "prefetcht0 (%[in_addr]) \n\t"
-      :
-      : [in_addr] "r"(in_addr), [in_value_addr] "r"(out_ptr)
-      :);
   switch (number) {
     case 0: {
       // byte
