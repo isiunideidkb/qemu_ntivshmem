@@ -1,0 +1,24 @@
+缓存机制 文档
+
+
+CLFLUSHOPT&CLFLUSH 的排序
+这两个指令都能保证后面的写 以及RMW原子操作 这是最重要的 这也是x86 内存序保证的,但是不包括读 如果想要用读请使用 我认为要谨慎使用
+"
+CLFLUSH/CLFLUSHOPT
+SFENCE
+cached READ OPERATION
+"
+但是它们不会和PREFETCH等投机(speculative)load行为重排! 即可能会发生前 后都有可能
+CLFLUSHOPT可能会和CLWB CLFLUSHOPT CLFLUSH发生重排
+CLFLUSH 可能会和CLWB CLFLUSHOPT发生重排 和CLFLUSH自身不会
+准确的来说CLFLUSHOPT 和 CLFLUSH的区别就是为了提升性能 不会保证之前和之后的CLFLUSHOPT顺序一定
+
+但是呢 这似乎对性能的提升微乎其微 我也不知道CPU内部是怎么制作的 我们必须要知道
+
+
+
+
+NT
+  x86想要在缓存内存上实现非缓存 只能 通过NT 遗憾的是 x86只支持NT Store，Linux默认的所有页都是WB缓存了的
+  NT memcpy
+  src cached buffer -NTCOPY> CLFLUSHOPT store dest buffer SFENCE -> NTWRITE

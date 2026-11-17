@@ -75,6 +75,9 @@ ABI规范 最终链接 库对外暴露在库导出表（不计库的依赖上游
   破例 内部的私有实现 不要求SysVABI
   破例 和WDM交互的部分 强制cdecl
 
+ISA扩展规范
+  均编译 运行时候判断 请不要编译时期判断
+
 待办:
   完善./src/common/host_rpc.c 的一些细节 例如LOG的行为 在check_stage里面 对umonitor waiter的支持(已经加了 等待提交) 以及 default_waiter代码逻辑完善(没有考虑返回值和调用约定)
   host_client.c host_client.h

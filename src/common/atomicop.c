@@ -39,7 +39,27 @@
   _USE_CMPXCHG: use cmpxchg for global atomic operation, enabled by default
   _USE_MOV: use mov for read for global atomic operation
   至少来说 write会有一个隐式的屏障 如果你是 write-read 你可以省去屏障 如果你读的地方期待的WRITE并没有使用LOCK指令换句话说也就是内建写的 那么你应该额外加上 屏障宏RPC_READ_BARRIER
-  
+
+
+
+
+  todo 完整的大页操作 因为默认的WB所以我们只支持目标 源NT的一些基本操作 分成两个版本 原子和不原子 并且都能编译
+
+  <isa>_<dest_memtype>_<op>(void* src,void* dest,unsigned long length)
+  note: 很遗憾 x86上的MOVNT 以及AVX SSE均不保证！不保证原子性 我们只需要保证不重排(no-reorder)即可
+  不条件编译 尽量运行时候判断 或者不判断 丢给调用我的 其他操作也如此
+  isa: 有
+    AVX
+    AVX2
+    SSE3
+    GPI(General Purpose Instruction 一般在Intel使用ERMS AMD使用rep movs/stos)
+  memtype:
+    ca(cached)
+    nt(non-temporal)
+    注 src 的memtype是固定ca 的 这里压根没有名字标注
+  op:
+    memswap
+    memmove
 */
 
 #include <stdio.h>
@@ -77,6 +97,8 @@ static void _backtrace_and_exit() {
 #endif
   exit(-1);
 }
+
+
 
 
 
