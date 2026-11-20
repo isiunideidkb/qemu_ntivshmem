@@ -87,3 +87,4 @@ ISA扩展规范
   linux host实现
   AMD MONITORX 等其他指令集支持
   hugepage atomicop(rep movb/movsb or SIMD? 整个大页要不要放到CPU缓存里面? 走不缓存MOVNT 还是缓存的 rep movsb? 不缓存要不要失效缓存行 需要做不同大小拷贝的benchmark) 是否需要mfence 刷新缓存行来防止读取重排?
+  see guest readme

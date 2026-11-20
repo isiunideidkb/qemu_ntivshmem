@@ -83,11 +83,15 @@ static inline bool IsSupportMonitor() {
                    : [out_cr4] "=r"(cr4)
                    : /* nothing read */
                    :);
-  unsigned int tmp_cr4 = cr4 << (32 - (10 + 1));
+  unsigned int tmp_cr4 = cr4 << (32 - (9 + 1));
   unsigned int is_osfxsr = tmp_cr4 >> (32 - 1);
-  if (!is_osfxsr) return false;
+  if (!is_osfxsr) {
+    CusLog("[MONITOR] OSFXSR not enabled");
+    return false;
+  }
   unsigned int eax, ebx, ecx, edx;
   __get_cpuid_count(0x01, 0x00, &eax, &ebx, &ecx, &edx);
+  CusLog("[DEBUG] CPUID ecx %d",ecx);
   unsigned int ecx_tmp = ecx << (32 - (3 + 1));
   unsigned int is_support_monitor = ecx_tmp >> (32 - 1);
   if (is_support_monitor) return true;
@@ -108,7 +112,7 @@ monitor_init:
         : "=rm"(eax), "=rm"(edx)
         : /* 没有要读的喵 */
         : "eax", "edx", "ecx");
-    unsigned int eax_tmp = eax << (32 - (19 + 1));  // fetch the 19th bit of eax
+    unsigned int eax_tmp = eax << (32 - (18 + 1));  // fetch the 18th(0indexed) bit of eax
     unsigned int eax_final = eax_tmp >> (32 - 1);
     if (eax_final) {  // MSR is already enabled,but there's no support
       CusLog("[MONITOR] monitor is unsupported on your cpu");

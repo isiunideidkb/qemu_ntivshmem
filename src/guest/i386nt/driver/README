@@ -14,3 +14,38 @@ compiation:
 todo list:
   WDM XPDM Driver
   WDDM Graphical Driver
+
+
+
+NOTE TODOLIST:
+就Intel KVM/HyperV而言 它们故意将CPUID.SSE3IsSupportMONITOR 设置成1 并且都是部分支持虚拟化 支持较差 但是waitpkg(UMONITOR)反而有支持 我们需要修改QEMU 对于KVM 我们需要看KVM/Linux手动开启指令集的支持(Hypervisor 给的CPUID是一个障眼法 实际上需要看MSR是否支持 打开就好 但是注意 还是需要手动开启 直接不管执行 默认KVM会Handle这个触发空操作或者异常 也就是需要主动告诉KVM不要管MONITOR MWAIT) 对于HyperV 目前找不到方法 就只能尝试使用waitpkg了 也就是说
+
+
+for Intel CPU 如果你是Linux 那么你可以使用MONITOR WAITPKG 但是需要修改QEMU源码 让guest执行MONITOR指令不会VMExit然后拦截
+for Intel CPU 如果你是Windows 那么强制要求CPU是Alder Lake(Intel 12代 以及以下的)
+for AMD CPU :unknown
+
+关于AMD MONITORX的扩展？
+  未知 目前没有加入AMD的打算
+
+为什么用MONITOR/WAITPKG?
+  XP以及更加古早的系统 并不支持IVSHMEM-PLAIN的MSI-X中断 我们需要使用共享内存 加上 Monitor的行为才可以
+
+什么是MONITOR?
+  MONITOR指令是来自Intel的 SSE3指令集 AMD也支持
+  MONITORX 指令是 AMD专属 扩展了
+  WAITPKG指令集的UMONITOR指令集是Intel扩展 自12代酷睿Alder Lake后的
+  这些都是用于等待 一个内存地址是否被写入的 当写入 硬件就会激活 配套的WAIT 就是专门等待这个是否会被激活
+
+有没有强硬解决方案?
+  有的 兄弟有的 直接spin-lock + if 循环等待 一定能够等到 不过这会大量消耗CPU的资源
+
+Further Reading:
+  去问LLM
+  IA32SDM
+
+todo list:
+  修改删除掉CPUID判断 直接走写入MSR看看是否是1的判断 MonitorInit就可以勉强成功 其他的Monitor正文不需要管其实
+  这个IoCtl实际上是用户态调用过来的 用户态调用可以通过配置选择用MONITOR还是UMONITOR 如果错了 也很简单 BSOD
+  无论如何 UMONITOR必须设计成内核态的Ioctl请求 同时升高到IRQL_HIGH_LEVEL 即便UMONITOR允许用户态 但是绝对不要在标准操作系统上使用WAITPKG（UMONITOR）指令
+  目前最好的打算就是使用guest UMONITOR host使用ioeventfd
