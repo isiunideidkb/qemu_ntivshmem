@@ -88,3 +88,11 @@ ISA扩展规范
   AMD MONITORX 等其他指令集支持
   hugepage atomicop(rep movb/movsb or SIMD? 整个大页要不要放到CPU缓存里面? 走不缓存MOVNT 还是缓存的 rep movsb? 不缓存要不要失效缓存行 需要做不同大小拷贝的benchmark) 是否需要mfence 刷新缓存行来防止读取重排?
   see guest readme
+  see trap_of_monitor
+  我们对KVM运行期间 如果MONITOR是处于正常的ring-1不会vmexit 是否会当作线程打断 的这个问题是一个迷
+  host_rpc.c可能需要重大重修 删除掉monitor的部分 改成 可选的对应实现的
+  尝试在等待的地方最后加入 让对方wakeup 的机制 代替monitor 改成可选的对应实现的
+  host_client.c 也需要加入 waiter,notifier,wakeup 的机制
+  QEMU 尝试加入IRQ的支持
+  guest 加入IRQ handle的支持
+  
