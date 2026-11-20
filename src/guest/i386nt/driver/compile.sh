@@ -1,0 +1,1 @@
+clang-cl /c /Zl /GS- /kernel /nologo /clang:-D__GNUC__ /clang:-D__i686__ /clang:-std=gnu23 -target i686-pc-windows-msvc /clang:-o /clang:cusdriver_2.obj /clang:-mno-sse /clang:-fno-builtin /clang:-nostdlib cusdriver_2.c

@@ -1,3 +1,89 @@
+// todo add MONITOR/MWAIT support & ioctl
+
+
+// todo virtaddr convert userspace_virt_addr to phys_addr ioctl for userspace
+// process with specifying length,NonPaged Required,and lock(or modify) this
+// page to non paged locked todo optimize read BAR register operations,more
+// defensive programming : check the first read of BAR2 is not zero,BAR3 is
+// zero,check MMIO enable bit
+
+// todo monitor/mwait ioctl wrapper for systesm specific waiter
+
+
+
+
+/*
+
+FOR LLM:
+
+顺便看看下面源代码的todo 你不需要在意是正确的还是错误的 请不要纠正你认为的错误 按照我的大致节奏 然后呢这是以下微调的
+0. MmProbeAndLockPages(g_CusMdlPtr, KernelMode, IoModifyAccess); 这个不要 换成那个MDL的就够了 因为默认映射的本来就是非pages的 然后呢 换成那个buildMdlFromNonPagedPoll给这个MDL填充对应内核虚拟地址空间的PFN就完全够了 这个多此一举还浪费东西
+1. 在探测BAR2 BAR3的时候 请才之前务必检查mmio 使能位 然后呢 
+2. 删掉这些无意义的垃圾注释
+3. 添加一个固定的一系列的服务于下面的IOCTL code 其他不认识的就返回错误 正常的就会写 全部都是用SystemBuffered! 这个其他的无所屌谓了
+3.1 添加PhysicalAddr直通的IOCTL 在IOCTL 你自定义搞 反正不要返回错误 错误用NULL表示 SystemBuffered懂了没有 然后呢 这个参数呢 就是用一个4字节(视平台而定 这里4字节 也就是sizeof(void*))
+3.1.2 具体怎么做 就是我们在进入的时候 由于会传递一个字节进来这个是一个指针 我们IoAllocateMdl 然后呢 我们直接走 MmProbeAndLockPages(pmdl,UserMode,IoModifyAccess); 带上SEH和错误处理  然后走MmGetSystemAddressForMdlSafe(pmdl,NormalPagePriority); 错误会返回NULL 注意了嗷  无论错误还是怎么 都无脑 丢给用户处理 写到这个参数上 完毕了! 注意！不会Unlock 所以必须要可以malloc free的 这个就不是内核可以管的了是一个协议床问题
+3.1.3 再做一个MonitorAndWaitUntilZ的 IoCtl 传进来一个固定4字节的offset+固定4byte的statuscode 是固定4byte的 注意了是一个无符号的int,unsigned int,然后是偏移！实际上我们走这个Monitor 实际上是走的 (g_Bar2BaseAddr-offset)这个地址 然后走我的 MonitorAddrAndWaitUntilZ 如果IsSupportMonitor是0 status code是0 否则是1 每次完成都必须写 都是同步的 所有IoCtl基本上都是同步的
+3.1.3 再做一个MonitorAndWaitUntilO的 IoCtl 和上面同理 不过走的是 MonitorAddrAndWaitUntilO
+3.2 在AddDevice CusLogInit之后加入MonitorInit,赋值给IsSupportMonitor 还有执行extern void __cdecl CorrectCache();,注意必须在后面 也就是CusLogInit执行初始化后后面
+
+所有不同的IoCtl都维护一个专门的Mutex 和Create一样 必须是串行的 就是同一时期只能有一个来拿到
+
+尽量C99兼容 老样子 不要动我声明的 不要私自给定义 要注意防御性编程 最后在生成的时候保留纯ASCII字符不要中文
+提高Robustness 修复BUG 适用于老WDK的7.1 5.1的
+
+MJ_CLEANUP加入
+
+然后这个是PCI配置空间的一些文档 请参考这个不要看网上的!
+typedef enum _MEMORY_CACHING_TYPE {
+  MmNonCached,
+  MmCached,
+  MmWriteCombined
+} MEMORY_CACHING_TYPE;
+typedef struct _PCI_COMMON_CONFIG {
+  USHORT  VendorID;
+  USHORT  DeviceID;
+  USHORT  Command; //todo 检查MMIO使能位噢
+  USHORT  Status;
+  UCHAR  RevisionID;
+  UCHAR  ProgIf;
+  UCHAR  SubClass;
+  UCHAR  BaseClass;
+  UCHAR  CacheLineSize;
+  UCHAR  LatencyTimer;
+  UCHAR  HeaderType;
+  UCHAR  BIST;
+  union {
+     struct _PCI_HEADER_TYPE_0 {
+       ULONG  BaseAddresses[PCI_TYPE0_ADDRESSES]; #define PCI_TYPE0_ADDRESSES             6  这个应该就是BAR寄存器地址了
+       ULONG  Reserved1[2];
+       ULONG  ROMBaseAddress;
+       ULONG  Reserved2[2];
+       UCHAR  InterruptLine;
+       UCHAR  InterruptPin;
+       UCHAR  MinimumGrant;
+       UCHAR  MaximumLatency;
+     } type0;
+   } u;
+   UCHAR  DeviceSpecific[192];
+} PCI_COMMON_CONFIG, *PPCI_COMMON_CONFIG;
+
+
+typedef union _LARGE_INTEGER {
+    struct {
+        ULONG LowPart;
+        LONG HighPart;
+    };
+    struct {
+        ULONG LowPart;
+        LONG HighPart;
+    } u;
+    LONGLONG QuadPart;
+};
+
+
+*/
+
 /* ============================================================================
  * cusdriver.c
  *
@@ -8,10 +94,9 @@
  *      0xFFFFFFFF, restore, then MmMapIoSpace(..., MmCached).
  *   2. On IRP_MJ_CREATE: build MDL over the mapped BAR2, lock it,
  *      map into user mode with MmMapLockedPagesSpecifyCache.
- *   3. On IRP_MJ_DEVICE_CONTROL (METHOD_BUFFERED): dispatch by IOCTL.
- *   4. On IRP_MJ_CLEANUP: placeholder (no resources to release here).
- *   5. On IRP_MJ_CLOSE: tear user mapping down.
- *   6. On STOP_DEVICE / REMOVE_DEVICE: unmap BAR2.
+ *   3. On IRP_MJ_DEVICE_CONTROL (METHOD_BUFFERED): return user-mode base.
+ *   4. On IRP_MJ_CLOSE: tear user mapping down.
+ *   5. On STOP_DEVICE / REMOVE_DEVICE: unmap BAR2.
  *
  * PORTABILITY NOTES (READ BEFORE EDITING):
  *
@@ -39,18 +124,18 @@
  *     FAST_MUTEX here would bugcheck.  KMUTEX does not change IRQL.
  * ==========================================================================*/
 
-// 1. Must be in an x86 DDK build environment.
+// 1. 必须处于 DDK 构建环境
 #if !defined(_X86_) || !defined(_X86_)
 #error \
     "FATAL: Not in an x86 DDK build environment. Run setenv.bat with 'x86' argument."
 #endif
 
-// 2. Absolutely no x64 / AMD64 environment.
+// 2. 绝对禁止 x64 / AMD64 环境混入
 #if defined(_AMD64_) || defined(_WIN64) || defined(_M_X64) || defined(_M_AMD64)
 #error "FATAL: x64 environment detected. This driver is x86-ONLY."
 #endif
 
-// 3. No non-x86 compiler target.
+// 3. 禁止编译器自带架构宏指向非 x86
 #if defined(_M_IA64) || defined(_M_ARM) || defined(_M_ARM64)
 #error "FATAL: Non-x86 compiler target detected."
 #endif
@@ -58,12 +143,10 @@
 #include <ntddk.h>
 #include <stdarg.h> /* compiler-intrinsic: va_list / va_start / va_arg / va_end */
 #include <wdm.h>
-
 /* ------------------------------------------------------------------------
- * Pool tag.
+ * Pool tag.  Only used if we ever call ExAllocatePoolWithTag.
  * ---------------------------------------------------------------------- */
 #define CUS_POOL_TAG 'DsuC'
-
 #ifndef METHOD_FROM_CTL_CODE
 #define METHOD_FROM_CTL_CODE(ctl) ((ctl) & 0x3u)
 #endif
@@ -79,35 +162,12 @@
 #ifndef ACCESS_FROM_CTL_CODE
 #define ACCESS_FROM_CTL_CODE(ctl) (((ctl) >> 14) & 0x3u)
 #endif
-
-#ifndef PCI_ENABLE_MEMORY_SPACE
-#define PCI_ENABLE_MEMORY_SPACE 0x0002
-#endif
-
-#ifndef PAGE_SIZE
-#define PAGE_SIZE 4096
-#endif
-
-/* ------------------------------------------------------------------------
- * Custom IOCTL codes.  All use METHOD_BUFFERED.
- * ---------------------------------------------------------------------- */
-#define CUS_DEVICE_TYPE FILE_DEVICE_UNKNOWN
-
-#define IOCTL_CUS_GET_BAR2_USER_ADDR \
-    CTL_CODE(CUS_DEVICE_TYPE, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define IOCTL_CUS_PHYSICAL_ADDR_DIRECT \
-    CTL_CODE(CUS_DEVICE_TYPE, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define IOCTL_CUS_MONITOR_WAIT_Z \
-    CTL_CODE(CUS_DEVICE_TYPE, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define IOCTL_CUS_MONITOR_WAIT_O \
-    CTL_CODE(CUS_DEVICE_TYPE, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
-
-/* ------------------------------------------------------------------------
- * External monitor routines.
- * ---------------------------------------------------------------------- */
+/*
+  !!Custom!!
+*/
 static _Bool IsSupportMonitor = 0;
 extern _Bool __cdecl MonitorInit();
-extern _Bool __cdecl CorrectCache();
+extern void __cdecl CorrectCache();
 extern void __cdecl MonitorAddrAndWaitUntilZ();
 extern void __cdecl MonitorAddrAndWaitUntilO();
 
@@ -115,27 +175,30 @@ extern void __cdecl MonitorAddrAndWaitUntilO();
  * Device extension
  * ---------------------------------------------------------------------- */
 typedef struct _CUS_DEVICE_EXTENSION {
-  PDEVICE_OBJECT Self;        /* our FDO */
+  PDEVICE_OBJECT Self; /* our FDO                                       */
   PDEVICE_OBJECT LowerDevice; /* next device down (usually the PDO) */
-  PDEVICE_OBJECT Pdo;         /* physical device object */
+  PDEVICE_OBJECT Pdo; /* physical device object                        */
 } CUS_DEVICE_EXTENSION, *PCUS_DEVICE_EXTENSION;
 
 /* ========================================================================
- * Static state
+ *  Static state
  * ======================================================================*/
 
 static KMUTEX g_Mutex;
+
+//Warning This Variable is DEPRECATED,do not use in new codes
 static volatile LONG g_IsOccupied = 0;
+
 static volatile PVOID g_Bar2BaseAddr = NULL;
 static volatile PVOID g_Bar2UserAddr = NULL;
 static ULONG g_Bar2Length = 0;
 static PMDL g_CusMdlPtr = NULL;
 
-static KMUTEX g_LogMutex;
+static KMUTEX g_LogMutex; /* KMUTEX, NOT FAST_MUTEX -- see header */
 static BOOLEAN g_LogMutexInit = FALSE;
 
 /* ========================================================================
- * Forward declarations
+ *  Forward declarations
  * ======================================================================*/
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath);
 NTSTATUS CusAddDevice(PDRIVER_OBJECT DriverObject,
@@ -144,7 +207,6 @@ VOID CusUnload(PDRIVER_OBJECT DriverObject);
 
 static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusClose(PDEVICE_OBJECT DeviceObject, PIRP Irp);
-static NTSTATUS CusCleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusDeviceIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp);
 static NTSTATUS CusUnsupported(PDEVICE_OBJECT DeviceObject, PIRP Irp);
@@ -152,12 +214,27 @@ static NTSTATUS CusSyncComplete(PDEVICE_OBJECT DevObj, PIRP Irp, PVOID Context);
 
 VOID CusLogInit(VOID);
 VOID CusLogClose(VOID);
-VOID CusLog(const char* fmt, ...);
+VOID __cdecl CusLog(const char* fmt, ...);
 
 /* ========================================================================
- * Logging
+ *  Logging
+ *
+ *  Log file: \??\C:\CusDriverLog.txt.
+ *  Opened once at DriverEntry with FILE_ALL_ACCESS and FILE_OPEN_IF:
+ *    - FILE_ALL_ACCESS  -> highest possible access rights on the handle.
+ *    - FILE_OPEN_IF     -> open an existing file (do NOT delete / truncate
+ *                          it), or create it if it does not yet exist.
+ *  Kept open for the driver's lifetime; CusLog() appends.
  * ======================================================================*/
 
+/* ------------------------------------------------------------------------
+ *  Tiny, self-contained, kernel-safe formatter.
+ *  Specifiers: %x %X %u %d %p %s %c %%
+ *
+ *  Rationale: neither WDK 5.1 nor WDK 7.1 ships a kernel-safe vsnprintf,
+ *  and we must not lean on the CRT.  All locals are declared at the top of
+ *  the loop body to satisfy strict C89.
+ * ---------------------------------------------------------------------- */
 static ULONG CusFormatString(char* buf, ULONG bufSize, const char* fmt,
                              va_list ap) {
   ULONG pos = 0;
@@ -168,6 +245,7 @@ static ULONG CusFormatString(char* buf, ULONG bufSize, const char* fmt,
   }
 
   while (*p != '\0' && pos + 1 < bufSize) {
+    /* --- C89: declare everything for this iteration here --- */
     const char* s;
     ULONG v;
     LONG sv;
@@ -237,6 +315,7 @@ static ULONG CusFormatString(char* buf, ULONG bufSize, const char* fmt,
         if (pos + 1 < bufSize) {
           buf[pos++] = '-';
         }
+        /* -LONG_MIN cannot be represented in LONG; wrap via unsigned. */
         uv = (ULONG)(-(sv + 1)) + 1u;
       } else {
         uv = (ULONG)sv;
@@ -282,6 +361,7 @@ static ULONG CusFormatString(char* buf, ULONG bufSize, const char* fmt,
       }
       p++;
     } else {
+      /* Unknown specifier: emit it literally. */
       if (pos + 1 < bufSize) {
         buf[pos++] = '%';
       }
@@ -295,6 +375,16 @@ static ULONG CusFormatString(char* buf, ULONG bufSize, const char* fmt,
   return pos;
 }
 
+/* ------------------------------------------------------------------------
+ *  CusLogInit -- called ONCE from AddDevice.
+ *
+ *  Opens the log with FILE_OVERWRITE_IF: any existing log is deleted /
+ *  truncated.  Writes the banner, then closes the handle immediately.
+ *
+ *  From this point until the driver is unloaded, the file is opened only
+ *  with FILE_SHARE_READ, so the log can be read (Notepad, type, Emacs)
+ *  but NOT written to or deleted by anyone else.
+ * ---------------------------------------------------------------------- */
 static VOID CusLogInit(VOID) {
   UNICODE_STRING path;
   OBJECT_ATTRIBUTES oa;
@@ -310,8 +400,8 @@ static VOID CusLogInit(VOID) {
 
   status = ZwCreateFile(&hLog, FILE_ALL_ACCESS | SYNCHRONIZE, &oa, &iosb, NULL,
                         FILE_ATTRIBUTE_NORMAL,
-                        FILE_SHARE_READ,
-                        FILE_OVERWRITE_IF,
+                        FILE_SHARE_READ,   /* only readers may open    */
+                        FILE_OVERWRITE_IF, /* delete/truncate old log  */
                         FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
   if (NT_SUCCESS(status) && hLog != NULL) {
@@ -321,7 +411,22 @@ static VOID CusLogInit(VOID) {
   }
 }
 
-static VOID CusLog(const char* fmt, ...) {
+/* ------------------------------------------------------------------------
+ *  CusLog -- printf-style into the log file.
+ *
+ *  Per call:
+ *    Open (FILE_OPEN_IF, append-only, FILE_SHARE_READ), write, close.
+ *
+ *  FILE_SHARE_READ means other processes may open for reading, but
+ *  cannot open for writing or for delete -- so the log is protected
+ *  between AddDevice and Unload.
+ *
+ *  Line ending is a bare LF (no CR) -- the log is consumed by Emacs.
+ *
+ *  A KMUTEX (not FAST_MUTEX) is used for serialisation because ZwCreateFile
+ *  and ZwWriteFile require IRQL == PASSIVE_LEVEL.
+ * ---------------------------------------------------------------------- */
+VOID __cdecl CusLog(const char* fmt, ...) {
   char buf[1024];
   ULONG len;
   va_list ap;
@@ -339,6 +444,7 @@ static VOID CusLog(const char* fmt, ...) {
   len = CusFormatString(buf, (ULONG)sizeof(buf), fmt, ap);
   va_end(ap);
 
+  /* Bare LF, no CR. */
   if (len + 1 < (ULONG)sizeof(buf)) {
     buf[len++] = '\n';
   }
@@ -352,8 +458,8 @@ static VOID CusLog(const char* fmt, ...) {
 
   status =
       ZwCreateFile(&hLog, FILE_APPEND_DATA | SYNCHRONIZE, &oa, &iosb, NULL,
-                   FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
-                   FILE_OPEN_IF,
+                   FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, /* readers only */
+                   FILE_OPEN_IF, /* never truncate here      */
                    FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
 
   if (NT_SUCCESS(status) && hLog != NULL) {
@@ -365,22 +471,46 @@ static VOID CusLog(const char* fmt, ...) {
   KeReleaseMutex(&g_LogMutex, FALSE);
 }
 
+/* ------------------------------------------------------------------------
+ *  CusLogClose -- nothing to do.
+ *
+ *  CusLog() never holds the file handle between calls, so there is
+ *  nothing to close at unload.  Kept as a stub so DriverUnload() stays
+ *  unchanged.  Per spec the log is NOT deleted at unload.
+ * ---------------------------------------------------------------------- */
 static VOID CusLogClose(VOID) { /* intentionally empty */ }
 
 /* ========================================================================
- * IRP_MJ_POWER handler
+ *  IRP_MJ_POWER handler
+ *
+ *  MUST forward every power IRP down the stack.  If a WDM FDO completes
+ *  IRP_MJ_POWER with an error instead of forwarding it, the lower device
+ *  never sees IRP_MN_SET_POWER / IRP_MN_QUERY_POWER and the power manager
+ *  waits forever -- which manifests as:
+ *
+ *      DRIVER_POWER_STATE_FAILURE (0x9F)
+ *
+ *  during shutdown, reboot, or standby.
+ *
+ *  We deliberately do not implement wake, so IRP_MN_WAIT_WAKE is just
+ *  forwarded too; the bus driver below us is free to accept or reject.
  * ======================================================================*/
 static NTSTATUS CusPower(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   PCUS_DEVICE_EXTENSION devExt =
       (PCUS_DEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
+  /* Tell the power manager we are done with the current power IRP.
+   * Required on all WDK 5.1 / WDK 7.1 targets. */
   PoStartNextPowerIrp(Irp);
+
   IoSkipCurrentIrpStackLocation(Irp);
   return PoCallDriver(devExt->LowerDevice, Irp);
 }
 
 /* ========================================================================
- * IRP_MJ_SYSTEM_CONTROL -- pass through to the lower device.
+ *  IRP_MJ_SYSTEM_CONTROL -- pass through to the lower device.
+ *  Some stacks expect WMI to reach the PDO; failing here can wedge
+ *  unrelated WMI queries during shutdown.
  * ======================================================================*/
 static NTSTATUS CusSystemControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   PCUS_DEVICE_EXTENSION devExt =
@@ -391,9 +521,11 @@ static NTSTATUS CusSystemControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 /* ========================================================================
- * PCI configuration-space helpers
+ *  PCI configuration-space helpers
  * ======================================================================*/
 
+/* Completion routine: signal an event and ask the I/O manager to stop
+ * processing the IRP so we can inspect it ourselves and free it.        */
 static NTSTATUS CusSyncComplete(PDEVICE_OBJECT DevObj, PIRP Irp,
                                 PVOID Context) {
   PKEVENT ev = (PKEVENT)Context;
@@ -405,6 +537,14 @@ static NTSTATUS CusSyncComplete(PDEVICE_OBJECT DevObj, PIRP Irp,
   return STATUS_MORE_PROCESSING_REQUIRED;
 }
 
+/* ------------------------------------------------------------------------
+ *  CusReadPciConfig / CusWritePciConfig
+ *
+ *  Build a raw IRP_MN_READ_CONFIG / IRP_MN_WRITE_CONFIG against the PDO.
+ *  The completion routine returns STATUS_MORE_PROCESSING_REQUIRED so the
+ *  I/O manager does not free the IRP behind our back; we free it with
+ *  IoFreeIrp after we are done.
+ * ---------------------------------------------------------------------- */
 static NTSTATUS CusReadPciConfig(PDEVICE_OBJECT Pdo,
                                  PPCI_COMMON_CONFIG pciConfig) {
   PIRP irp;
@@ -482,9 +622,26 @@ static NTSTATUS CusWritePciConfig(PDEVICE_OBJECT Pdo,
 }
 
 /* ========================================================================
- * BAR2 discovery / mapping
+ *  BAR2 discovery / mapping
  * ======================================================================*/
 
+/* ------------------------------------------------------------------------
+ *  CusReadAndMapBar2
+ *
+ *  Sequence:
+ *    1) read  config -> save BAR2
+ *    2) write config with BAR2 = 0xFFFFFFFF
+ *    3) read  config -> probe value -> length = ~(probe & ~0xF) + 1
+ *    4) write config with BAR2 = saved value (restore)
+ *    5) MmMapIoSpace(savedBAR, length, MmCached)
+ *
+ *  BaseAddresses is a 6-element, 0-based array covering BAR0..BAR5, so
+ *  BAR2 is at index 2 (NOT 3).
+ *
+ *  MmCached is intentional.  A production driver would normally use
+ *  MmNonCached or MmWriteCombined for a PCI BAR; the spec asked for
+ *  MmCached and we honor that.
+ * ---------------------------------------------------------------------- */
 static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
   PCI_COMMON_CONFIG pciConfig;
   NTSTATUS status;
@@ -508,37 +665,6 @@ static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
     return status;
   }
 
-  /* Check MMIO enable bit */
-  if ((pciConfig.Command & PCI_ENABLE_MEMORY_SPACE) == 0) {
-    CusLog("CusReadAndMapBar2: memory space disabled, enabling");
-    pciConfig.Command |= PCI_ENABLE_MEMORY_SPACE;
-    status = CusWritePciConfig(Pdo, &pciConfig);
-    if (!NT_SUCCESS(status)) {
-      CusLog("CusReadAndMapBar2: failed to enable memory space: %x", status);
-      return status;
-    }
-    RtlZeroMemory(&pciConfig, sizeof(PCI_COMMON_CONFIG));
-    status = CusReadPciConfig(Pdo, &pciConfig);
-    if (!NT_SUCCESS(status)) {
-      CusLog("CusReadAndMapBar2: re-read config failed: %x", status);
-      return status;
-    }
-    if ((pciConfig.Command & PCI_ENABLE_MEMORY_SPACE) == 0) {
-      CusLog("CusReadAndMapBar2: memory space still disabled");
-      return STATUS_DEVICE_NOT_READY;
-    }
-  }
-
-  /* Check BAR2 non-zero and BAR3 zero */
-  if (pciConfig.u.type0.BaseAddresses[2] == 0) {
-    CusLog("CusReadAndMapBar2: BAR2 is zero");
-    return STATUS_DEVICE_NOT_READY;
-  }
-  if (pciConfig.u.type0.BaseAddresses[3] != 0) {
-    CusLog("CusReadAndMapBar2: BAR3 is not zero");
-    return STATUS_DEVICE_NOT_READY;
-  }
-
   savedBar2 = pciConfig.u.type0.BaseAddresses[2]; /* BAR2 */
   CusLog("CusReadAndMapBar2: BAR2 phys addr = %x", savedBar2);
 
@@ -558,6 +684,7 @@ static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
   if (!NT_SUCCESS(status)) {
     CusLog("CusReadAndMapBar2: read-back failed: %x", status);
 
+    /* Best-effort restore before bailing out. */
     RtlZeroMemory(&pciConfig, sizeof(PCI_COMMON_CONFIG));
     (VOID) CusReadPciConfig(Pdo, &pciConfig);
     pciConfig.u.type0.BaseAddresses[2] = savedBar2;
@@ -569,6 +696,9 @@ static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
   CusLog("CusReadAndMapBar2: BAR2 sizing value = %x", probeValue);
 
   /* ---- Step 4: compute length, then restore ---- */
+  /* Standard BAR-sizing formula: size = (~mask) + 1 where
+   * mask = value & ~0xF.  Low 4 bits of a memory BAR are read-only
+   * type info, so clear them before inverting. */
   length = (~(probeValue & 0xFFFFFFF0UL)) + 1UL;
   CusLog("CusReadAndMapBar2: BAR2 length = %x", length);
 
@@ -589,8 +719,8 @@ static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
 
   /* ---- Step 5: map it ---- */
   RtlZeroMemory(&windowsPhysAddr, sizeof(windowsPhysAddr));
-  windowsPhysAddr.u.LowPart = savedBar2 & 0xFFFFFFF0UL;
-  windowsPhysAddr.u.HighPart = 0;
+  windowsPhysAddr.u.LowPart = savedBar2 & 0xFFFFFFF0UL; /* clear type bits */
+  windowsPhysAddr.u.HighPart = 0;                       /* 32-bit BAR      */
 
   CusLog("CusReadAndMapBar2: MmMapIoSpace(phys=%x, len=%x, MmCached)",
          windowsPhysAddr.u.LowPart, length);
@@ -608,6 +738,9 @@ static NTSTATUS CusReadAndMapBar2(PDEVICE_OBJECT Pdo) {
   return STATUS_SUCCESS;
 }
 
+/* ------------------------------------------------------------------------
+ *  CusUnmapBar2 -- reverse of MmMapIoSpace.  Idempotent.
+ * ---------------------------------------------------------------------- */
 static VOID CusUnmapBar2(VOID) {
   if (g_Bar2BaseAddr != NULL) {
     CusLog("CusUnmapBar2: MmUnmapIoSpace(%p, %x)", g_Bar2BaseAddr,
@@ -619,7 +752,7 @@ static VOID CusUnmapBar2(VOID) {
 }
 
 /* ========================================================================
- * IRP_MJ_CREATE handler
+ *  IRP_MJ_CREATE handler
  * ======================================================================*/
 static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   PVOID tmpUserAddr = NULL;
@@ -628,8 +761,11 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 
   CusLog("Create: enter");
 
+  /* Serialise: everything from here to the matching release runs
+   * single-threaded with respect to other Create/Close/IoCtl paths. */
   KeWaitForSingleObject(&g_Mutex, Executive, KernelMode, FALSE, NULL);
 
+  /* Atomic test-and-set on g_IsOccupied. */
   if (InterlockedCompareExchange(&g_IsOccupied, 1, 0) != 0) {
     CusLog("Create: device already occupied");
     KeReleaseMutex(&g_Mutex, FALSE);
@@ -640,7 +776,7 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   }
 
   if (g_Bar2BaseAddr == NULL) {
-    CusLog("Create: BAR2 base address is NULL");
+    CusLog("Create: the programmer is fucking asshole - base_addr is NULL");
     g_IsOccupied = 0;
     KeReleaseMutex(&g_Mutex, FALSE);
     Irp->IoStatus.Status = STATUS_INVALID_DEVICE_STATE;
@@ -649,10 +785,12 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     return STATUS_INVALID_DEVICE_STATE;
   }
 
+  /* Build an MDL over the MmMapIoSpace'd region.  Passing NULL for the
+   * IRP so this MDL is NOT tied to the create IRP. */
   g_CusMdlPtr = IoAllocateMdl((PVOID)g_Bar2BaseAddr, g_Bar2Length,
                               FALSE, /* SecondaryBuffer */
-                              FALSE, /* ChargeQuota */
-                              NULL); /* Irp */
+                              FALSE, /* ChargeQuota     */
+                              NULL); /* Irp -- deliberately not associated */
   if (g_CusMdlPtr == NULL) {
     CusLog("Create: IoAllocateMdl failed");
     g_IsOccupied = 0;
@@ -663,9 +801,20 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     return STATUS_INSUFFICIENT_RESOURCES;
   }
 
+  /* WARNING / HACK:
+   * MmBuildMdlForNonPagedPool is technically wrong here -- the region
+   * described by the MDL lives in the system address range (from
+   * MmMapIoSpace), not in the non-paged pool.  It also sets the
+   * MDL_PAGES_LOCKED flag.  The subsequent MmProbeAndLockPages on an
+   * already-built MDL is therefore ill-formed and may raise an
+   * exception on some kernels.  The __try/__except below traps that
+   * and turns it into a clean failure.  This ordering was requested
+   * explicitly and is preserved faithfully. */
   MmBuildMdlForNonPagedPool(g_CusMdlPtr);
 
   __try {
+//    MmProbeAndLockPages(g_CusMdlPtr, KernelMode, IoModifyAccess);
+
     tmpUserAddr = MmMapLockedPagesSpecifyCache(g_CusMdlPtr, UserMode, MmCached,
                                                NULL, 0, NormalPagePriority);
   } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -684,6 +833,7 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 
   if (tmpUserAddr == NULL) {
     CusLog("Create: MmMapLockedPagesSpecifyCache failed");
+    MmUnlockPages(g_CusMdlPtr);
     IoFreeMdl(g_CusMdlPtr);
     g_CusMdlPtr = NULL;
     g_IsOccupied = 0;
@@ -697,8 +847,6 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   g_Bar2UserAddr = tmpUserAddr;
   CusLog("Create: fetched user addr = %p", tmpUserAddr);
 
-  KeReleaseMutex(&g_Mutex, FALSE);
-
   Irp->IoStatus.Status = STATUS_SUCCESS;
   Irp->IoStatus.Information = 0;
   IoCompleteRequest(Irp, IO_NO_INCREMENT);
@@ -706,31 +854,16 @@ static NTSTATUS CusCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 /* ========================================================================
- * IRP_MJ_CLEANUP handler
- * ======================================================================*/
-static NTSTATUS CusCleanup(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
-  UNREFERENCED_PARAMETER(DeviceObject);
-
-  CusLog("Cleanup: enter");
-
-  Irp->IoStatus.Status = STATUS_SUCCESS;
-  Irp->IoStatus.Information = 0;
-  IoCompleteRequest(Irp, IO_NO_INCREMENT);
-  return STATUS_SUCCESS;
-}
-
-/* ========================================================================
- * IRP_MJ_CLOSE handler
+ *  IRP_MJ_CLOSE handler
  * ======================================================================*/
 static NTSTATUS CusClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   UNREFERENCED_PARAMETER(DeviceObject);
 
   CusLog("Close: enter");
 
-  KeWaitForSingleObject(&g_Mutex, Executive, KernelMode, FALSE, NULL);
-
   if (g_Bar2BaseAddr == NULL || g_Bar2UserAddr == NULL || g_CusMdlPtr == NULL) {
-    CusLog("Close: state inconsistent");
+    CusLog("Close: the programmer is fucking asshole - state inconsistent");
+    /* Fall through; tear down whatever is present. */
   }
 
   if (g_CusMdlPtr != NULL) {
@@ -738,6 +871,7 @@ static NTSTATUS CusClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
       MmUnmapLockedPages((PVOID)g_Bar2UserAddr, g_CusMdlPtr);
       g_Bar2UserAddr = NULL;
     }
+    MmUnlockPages(g_CusMdlPtr);
     IoFreeMdl(g_CusMdlPtr);
     g_CusMdlPtr = NULL;
   }
@@ -753,7 +887,10 @@ static NTSTATUS CusClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 /* ========================================================================
- * IRP_MJ_DEVICE_CONTROL handler (METHOD_BUFFERED)
+ *  IRP_MJ_DEVICE_CONTROL handler (METHOD_BUFFERED)
+ *
+ *  Input ignored.  Output must be >= sizeof(PVOID); we write the
+ *  user-mode BAR2 base address into the system buffer.
  * ======================================================================*/
 static NTSTATUS CusDeviceIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   PIO_STACK_LOCATION stack;
@@ -771,20 +908,22 @@ static NTSTATUS CusDeviceIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   inLen = stack->Parameters.DeviceIoControl.InputBufferLength;
   outLen = stack->Parameters.DeviceIoControl.OutputBufferLength;
   buf = Irp->AssociatedIrp.SystemBuffer;
-  method = METHOD_FROM_CTL_CODE(code);
+  method = METHOD_FROM_CTL_CODE(code);  // hack: method code
 
   CusLog("IoCtl: code=%x inLen=%u outLen=%u", code, inLen, outLen);
 
-  if (method != METHOD_BUFFERED) {
-    CusLog("IoCtl: unsupported method");
-    status = STATUS_INVALID_DEVICE_REQUEST;
+  UNREFERENCED_PARAMETER(inLen); /* input is ignored */
+
+  if ((outLen < sizeof(PVOID)) || (method != 0)) {
+    CusLog("IoCtl: invalid device request");
+    status = STATUS_BUFFER_TOO_SMALL;
     Irp->IoStatus.Information = 0;
     Irp->IoStatus.Status = status;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return status;
   }
 
-  if (g_Bar2BaseAddr == NULL || g_Bar2UserAddr == NULL || g_CusMdlPtr == NULL) {
+  if (g_CusMdlPtr == NULL || g_Bar2UserAddr == NULL) {
     CusLog("IoCtl: device not in initialized state");
     status = STATUS_INVALID_DEVICE_STATE;
     Irp->IoStatus.Information = 0;
@@ -793,127 +932,17 @@ static NTSTATUS CusDeviceIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     return status;
   }
 
+  *(PVOID*)buf = (PVOID)g_Bar2UserAddr;
+  Irp->IoStatus.Information = sizeof(PVOID);
   status = STATUS_SUCCESS;
 
-  switch (code) {
-    case IOCTL_CUS_GET_BAR2_USER_ADDR: {
-      if (outLen < sizeof(PVOID)) {
-        CusLog("IoCtl: GET_BAR2_USER_ADDR buffer too small");
-        status = STATUS_BUFFER_TOO_SMALL;
-        break;
-      }
-      *(PVOID*)buf = (PVOID)g_Bar2UserAddr;
-      Irp->IoStatus.Information = sizeof(PVOID);
-      break;
-    }
-
-    case IOCTL_CUS_PHYSICAL_ADDR_DIRECT: {
-      PVOID userAddr;
-      PMDL mdl;
-      PVOID systemAddr = NULL;
-
-      if (inLen < sizeof(PVOID) || outLen < sizeof(PVOID)) {
-        CusLog("IoCtl: PHYSICAL_ADDR_DIRECT buffer too small");
-        status = STATUS_BUFFER_TOO_SMALL;
-        break;
-      }
-
-      userAddr = *(PVOID*)buf;
-      CusLog("IoCtl: PHYSICAL_ADDR_DIRECT userAddr=%p", userAddr);
-
-      mdl = IoAllocateMdl(userAddr, PAGE_SIZE, FALSE, FALSE, NULL);
-      if (mdl != NULL) {
-        __try {
-          MmProbeAndLockPages(mdl, UserMode, IoModifyAccess);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-          CusLog("IoCtl: PHYSICAL_ADDR_DIRECT exception in MmProbeAndLockPages");
-          IoFreeMdl(mdl);
-          mdl = NULL;
-        }
-
-        if (mdl != NULL) {
-          systemAddr = MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority);
-          if (systemAddr == NULL) {
-            CusLog("IoCtl: PHYSICAL_ADDR_DIRECT MmGetSystemAddressForMdlSafe failed");
-          }
-          /* Per protocol, do NOT unlock or free MDL on success/failure */
-        }
-      } else {
-        CusLog("IoCtl: PHYSICAL_ADDR_DIRECT IoAllocateMdl failed");
-      }
-
-      *(PVOID*)buf = systemAddr;
-      Irp->IoStatus.Information = sizeof(PVOID);
-      status = STATUS_SUCCESS;
-      break;
-    }
-
-    case IOCTL_CUS_MONITOR_WAIT_Z: {
-      ULONG offset;
-      ULONG statuscode;
-      PVOID monitorAddr;
-
-      if (inLen < 2 * sizeof(ULONG) || outLen < sizeof(ULONG)) {
-        CusLog("IoCtl: MONITOR_WAIT_Z buffer too small");
-        status = STATUS_BUFFER_TOO_SMALL;
-        break;
-      }
-
-      offset = *(ULONG*)buf;
-      statuscode = *((ULONG*)buf + 1);
-      monitorAddr = (PVOID)((ULONG_PTR)g_Bar2BaseAddr - offset);
-      CusLog("IoCtl: MONITOR_WAIT_Z offset=%x statuscode=%x addr=%p",
-             offset, statuscode, monitorAddr);
-
-      MonitorAddrAndWaitUntilZ(monitorAddr, statuscode);
-
-      statuscode = IsSupportMonitor ? 1 : 0;
-      *(ULONG*)buf = statuscode;
-      Irp->IoStatus.Information = sizeof(ULONG);
-      break;
-    }
-
-    case IOCTL_CUS_MONITOR_WAIT_O: {
-      ULONG offset;
-      ULONG statuscode;
-      PVOID monitorAddr;
-
-      if (inLen < 2 * sizeof(ULONG) || outLen < sizeof(ULONG)) {
-        CusLog("IoCtl: MONITOR_WAIT_O buffer too small");
-        status = STATUS_BUFFER_TOO_SMALL;
-        break;
-      }
-
-      offset = *(ULONG*)buf;
-      statuscode = *((ULONG*)buf + 1);
-      monitorAddr = (PVOID)((ULONG_PTR)g_Bar2BaseAddr - offset);
-      CusLog("IoCtl: MONITOR_WAIT_O offset=%x statuscode=%x addr=%p",
-             offset, statuscode, monitorAddr);
-
-      MonitorAddrAndWaitUntilO(monitorAddr, statuscode);
-
-      statuscode = IsSupportMonitor ? 1 : 0;
-      *(ULONG*)buf = statuscode;
-      Irp->IoStatus.Information = sizeof(ULONG);
-      break;
-    }
-
-    default:
-      CusLog("IoCtl: unknown code %x", code);
-      status = STATUS_INVALID_DEVICE_REQUEST;
-      break;
-  }
-
   Irp->IoStatus.Status = status;
-  if (status != STATUS_SUCCESS) {
-    Irp->IoStatus.Information = 0;
-  }
   IoCompleteRequest(Irp, IO_NO_INCREMENT);
   return status;
 }
 
 /* ========================================================================
- * IRP_MJ_PNP handler
+ *  IRP_MJ_PNP handler
  * ======================================================================*/
 static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   PCUS_DEVICE_EXTENSION devExt;
@@ -943,6 +972,7 @@ static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
         status = CusReadAndMapBar2(devExt->Pdo);
         if (!NT_SUCCESS(status)) {
           CusLog("PnP: BAR2 setup failed: %x", status);
+          /* Fail START so PnP tears the device down. */
         }
       } else {
         CusLog("PnP: lower driver START_DEVICE failed: %x", status);
@@ -979,7 +1009,11 @@ static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
       IoDeleteDevice(DeviceObject);
       return status;
     }
-
+    /* ------------------------------------------------------------------
+     * IRP_MN_SURPRISE_REMOVAL -- device is gone; unmap the BAR before
+     * forwarding so we cannot touch disappearing MMIO afterwards.
+     * CusUnmapBar2() is idempotent, so it is safe if REMOVE also runs.
+     * ----------------------------------------------------------------*/
     case IRP_MN_SURPRISE_REMOVAL: {
       CusLog("PnP: IRP_MN_SURPRISE_REMOVAL");
       CusUnmapBar2();
@@ -995,7 +1029,7 @@ static NTSTATUS CusPnp(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 /* ========================================================================
- * Catch-all for unsupported major functions
+ *  Catch-all for unsupported major functions
  * ======================================================================*/
 static NTSTATUS CusUnsupported(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
   UNREFERENCED_PARAMETER(DeviceObject);
@@ -1007,7 +1041,7 @@ static NTSTATUS CusUnsupported(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 }
 
 /* ========================================================================
- * AddDevice
+ *  AddDevice
  * ======================================================================*/
 NTSTATUS
 CusAddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject) {
@@ -1016,7 +1050,6 @@ CusAddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject) {
   PCUS_DEVICE_EXTENSION devExt;
   UNICODE_STRING deviceName;
   UNICODE_STRING symLinkName;
-  _Bool cacheResult;
 
   KeInitializeMutex(&g_LogMutex, 0);
   g_LogMutexInit = TRUE;
@@ -1024,11 +1057,6 @@ CusAddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject) {
   CusLogInit();
   CusLog("===========================================");
   CusLog("AddDevice: enter");
-
-  IsSupportMonitor = MonitorInit();
-  CusLog("AddDevice: IsSupportMonitor = %d", IsSupportMonitor);
-  cacheResult = CorrectCache();
-  CusLog("AddDevice: CorrectCache = %d", cacheResult);
 
   RtlInitUnicodeString(&deviceName, L"\\Device\\CusDriver");
 
@@ -1068,7 +1096,7 @@ CusAddDevice(PDRIVER_OBJECT DriverObject, PDEVICE_OBJECT PhysicalDeviceObject) {
 }
 
 /* ========================================================================
- * DriverUnload
+ *  DriverUnload
  * ======================================================================*/
 VOID CusUnload(PDRIVER_OBJECT DriverObject) {
   UNREFERENCED_PARAMETER(DriverObject);
@@ -1081,7 +1109,7 @@ VOID CusUnload(PDRIVER_OBJECT DriverObject) {
 }
 
 /* ========================================================================
- * DriverEntry
+ *  DriverEntry
  * ======================================================================*/
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
@@ -1097,11 +1125,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
 
   DriverObject->MajorFunction[IRP_MJ_CREATE] = CusCreate;
   DriverObject->MajorFunction[IRP_MJ_CLOSE] = CusClose;
-  DriverObject->MajorFunction[IRP_MJ_CLEANUP] = CusCleanup;
   DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = CusDeviceIoControl;
   DriverObject->MajorFunction[IRP_MJ_PNP] = CusPnp;
-  DriverObject->MajorFunction[IRP_MJ_POWER] = CusPower;
-  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] = CusSystemControl;
+  DriverObject->MajorFunction[IRP_MJ_POWER] = CusPower; /* NEW */
+  DriverObject->MajorFunction[IRP_MJ_SYSTEM_CONTROL] =
+      CusSystemControl; /* NEW */
 
   DriverObject->DriverExtension->AddDevice = CusAddDevice;
   DriverObject->DriverUnload = CusUnload;
@@ -1110,5 +1138,5 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
 }
 
 /* ============================================================================
- * End of cusdriver.c
+ *  End of cusdriver.c
  * ==========================================================================*/

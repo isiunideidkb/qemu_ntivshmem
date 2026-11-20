@@ -80,6 +80,44 @@
 #define CACHE_LINE_SIZE 64
 
 
+static inline bool check_op(void* _src,void* _dest,unsigned long length) {
+  unsigned long src = (unsigned long)_src;
+  unsigned long dest = (unsigned long)_dest;
+  if((!src) || (src & (64 - 1)) != 0)
+    return false;
+  if((!dest) || (dest & (64 - 1)) != 0)
+    return false;
+  if((!length) || (length & (64 - 1)) != 0)
+    return false;
+  return true;
+}
+
+void __myatomic_erms_ca_memmove(void* src,void* dest,unsigned long length) {
+  if(!check_op(src,dest,length))
+    _backtrace_and_exit();
+  asm volatile(
+    "movq %[src],%%rsi \n\t"
+    "movq %[dest],%%rdi \n\t"
+    "mov %[length],%%rcx \n\t"
+    "rep movsb \n\t"
+    "mfence \n\t" //为什么不sfence 因为在这里我们要求的不仅是写入全部完毕 我们还要求不会重排 也就是写入一定先于所有读不重排 sfence无法保证
+    : /* nothing */
+    : [src]"rm"(src),[dest]"rm"(dest),[length]"rm"(length)
+    : "rdi","rsi","rcx"
+  );    
+}
+//__myatomic_erms_ca_memswap(void* src,void* dest,unsigned long length);
+//__myatomic_erms_nt_memswap/memmove(void* src,void* dest,unsigned long length);
+
+__myatomic_sse_ca_memmove(void* src,void* dest,unsigned long length);
+__myatomic_sse_ca_memswap(void* src,void* dest,unsigned long length);
+__myatomic_sse_nt_memmove(void* src,void* dest,unsigned long length);
+__myatomic_sse_nt_memswap(void* src,void* dest,unsigned long length);
+
+__myatomic_avx_ca_memmove(void* src,void* dest,unsigned long length);
+__myatomic_avx_ca_memswap(void* src,void* dest,unsigned long length);
+__myatomic_avx_nt_memmove(void* src,void* dest,unsigned long length);
+__myatomic_avx_nt_memswap(void* src,void* dest,unsigned long length);
 
 [[noreturn]]
 static void _backtrace_and_exit() {

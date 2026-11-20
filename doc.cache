@@ -2,10 +2,14 @@
 
 
 CLFLUSHOPT&CLFLUSH 的排序
-这两个指令都能保证后面的写 以及RMW原子操作 这是最重要的 这也是x86 内存序保证的,但是不包括读 如果想要用读请使用 我认为要谨慎使用
+这两个指令都能保证后面的写 以及RMW原子操作 这是最重要的 这也是x86 内存序保证的,至于读 注意！ 我不知道具体的读行为可能会发生什么 一方面 invalidate 后直接读 和没有一样 可以忽略SFENCE的作用 另外一方面 invalidate后写 缓存写后 直接读 因为这个x86TSO所以能够保证 和没有加SFENCE也差不多 但是 NT写后缓存读就不知道了... 我无法判断读是否会越过这个CLFLUSH的行为 不等同于处理器排序 这个涉及到无缓存的
 "
 CLFLUSH/CLFLUSHOPT
 SFENCE
+cached READ OPERATION
+" 也可以
+"
+CLFLUSH/CLFLUSHOPT
 cached READ OPERATION
 "
 但是它们不会和PREFETCH等投机(speculative)load行为重排! 即可能会发生前 后都有可能
@@ -22,3 +26,5 @@ NT
   x86想要在缓存内存上实现非缓存 只能 通过NT 遗憾的是 x86只支持NT Store，Linux默认的所有页都是WB缓存了的
   NT memcpy
   src cached buffer -NTCOPY> CLFLUSHOPT store dest buffer SFENCE -> NTWRITE
+  NT的写 基本上要求首先地址大小64字节对齐 并且整个缓存行都不允许有任何的读取写入 这样才可以 基本上 NT在10MB以上才有优势 这个足够了 所以才设计地这么苛刻! RPC里面Flag等 第一个64字节的块（包括一些RPC的信息） 肯定是要抛弃的! 不过使用NT Store基本上都超过10MB 这64字节的Skip保证缓存行正确就显得没啥大不了的
+  接上文 之所以NT的写非常苛刻 可以去看benchmark/llm_bench.c 的NT 这个NT的时序和CLFLUSH非常苛刻 首先就是整个缓存行都不能被读取写入 间接要求64字节对齐并且没有读取写入自invalidate后 而且你必须在CLFLUSH后再NT写 因为x86所有刷新缓存的都必须写回内存 这个和 NT写是冲突的 时序冲突 所以基本上都断定了 写的时候要求大 想要能用必须方圆（整个占据的包括缓存行） 都自invalidate后无人读写即可 而且结果也验证了 必须要大于16MB左右的才会开始占据优势 这个很空旷

@@ -3,7 +3,7 @@ guest(i386nt) kernel driver which was written by LLM partialy(but i dominated th
 
 compiation:
   cd to your /path/to/qemu_ntivshmem/qemu_ntivhsmem/guest/i386nt/driver for Windows(WDM) and Linux(gcc)
-  step 1 on host linux: i686-w64-mingw32-cc -c ./cusdriver_2.c -o cusdriver_2.obj
+  step 1 on host linux: ./compile.sh then copy cusdriver_2.obj to C:\CusDriverDir
   step 2 on WDK(Windows): build
   create directory on Windows C:\CusDriverDir
   copy ./cusdriver.sys ./cusdriver.inf to C:\CusDriverDir

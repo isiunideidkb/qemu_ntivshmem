@@ -1,10 +1,13 @@
 TARGETNAME=cusdriver
 TARGETTYPE=DRIVER
 TARGETPATH=obj
-SOURCES=cusdriver.c \
-        cusdriver_2.obj
-TARGETLIBS= $(DDK_LIB_PATH)\ntoskrnl.lib \
-            $(DDK_LIB_PATH)\wdm.lib \
-            $(DDK_LIB_PATH)\ntstrsafe.lib
-DRIVERTYPE=WDM
+SOURCES=cusdriver.c
+DRIVER_TYPE=WDM
+TARGETLIBS=$(MAKEDIR)\cusdriver_2.obj \
+           $(DDK_LIB_PATH)\ntoskrnl.lib \
+           $(DDK_LIB_PATH)\wdm.lib \
+           $(DDK_LIB_PATH)\ntstrsafe.lib \
+
+
+
 

@@ -43,8 +43,38 @@ MONITOR/MWAIT不支持Virtual-8086模式
 See IA33 SDM Volume 3, Chapter 11.10.4
 */
 #include <cpuid.h>
-#include <immintrin.h>
-extern void CusLog(const char* fmt, ...);
+
+
+#define PASSIVE_LEVEL       0
+#define APC_LEVEL           1
+#define DISPATCH_LEVEL      2
+#define CMCI_LEVEL          5
+#define CLOCK_LEVEL         13
+#define IPI_LEVEL           14
+#define POWER_LEVEL         30
+#define HIGH_LEVEL          31
+
+typedef unsigned char irql_t;
+
+//[[gnu::stdcall]] extern void KeGetCurrentIrql();
+
+[[gnu::stdcall]] extern void KeRaiseIrql(
+    irql_t   NewIrql,
+    irql_t*  OldIrql
+);
+
+[[gnu::stdcall]] extern void KeLowerIrql(
+    irql_t  NewIrql 
+);
+
+//[[gnu::stdcall]] irql_t KeGetCurrentIrql(void);
+//KeRegisterNmiCallback Since Windows Server 2003
+//KeDeregisterNmiCallback Since Windows Sever 2003
+//[[gnu::stdcall]] KeBugCheck
+
+
+
+[[gnu::cdecl]] extern void CusLog(const char* fmt, ...);
 static_assert(sizeof(unsigned int) == 4);
 static inline bool IsSupportMonitor() {
   // MONITOR is of SSE3 ISA,making sure OS enabled the CR4.OSFXSR
@@ -59,8 +89,8 @@ static inline bool IsSupportMonitor() {
   unsigned int eax, ebx, ecx, edx;
   __get_cpuid_count(0x01, 0x00, &eax, &ebx, &ecx, &edx);
   unsigned int ecx_tmp = ecx << (32 - (3 + 1));
-  unsigned int is_support_umonitor = ecx_tmp >> (32 - 1);
-  if (is_support_umonitor) return true;
+  unsigned int is_support_monitor = ecx_tmp >> (32 - 1);
+  if (is_support_monitor) return true;
   return false;
 }
 
@@ -115,11 +145,11 @@ monitor_init:
 // todo wait with ext
 // todo CR0 check to avoid non-WB cache access : ok
 
-[[gnu::cdecl]] bool CorrectCache() {
+[[gnu::cdecl]] void CorrectCache() {
   CusLog("=====Correct Cache=====");
   unsigned int old_cr0;
-  __asm__ volatile("movl %%cr0,%[out_parm] \n\t"
-                   : [out_parm] "=rm"(old_cr0)
+  __asm__ volatile("movl %%cr0,%[parm] \n\t"
+                   : [parm] "=r"(old_cr0)
                    :
                    :);
   unsigned int _tmp = old_cr0 << (32 - (29 + 1));  // 不包括0啊! 还要额外加一
@@ -144,7 +174,7 @@ monitor_init:
         : [in_param] "rm"(new_cr0)
         : "edi");
   }
-  return true;
+  return;
 }
 
 //this method may block potentially
@@ -153,11 +183,17 @@ monitor_init:
 */
 
 [[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilZ(void* addr) {
+  //todo IRQL 判断 KeRegisterNmiCallback then KeBugCheckEx  防止NMI中断打断 打断了就直接蓝屏 !
+  irql_t prev_level;
+  KeRaiseIrql(HIGH_LEVEL,&prev_level);
+  //内核编程会切换上下文导致Monitor不管用 强制设置让内核不允许切换上下文 必须干到LowerIrql为止 Logical核心一次只能有一个
+ 
   if(!IsSupportMonitor())
     return;
 //todo check CPUID.05H.EDX[7:4]  c-state count
   __asm__ volatile (
     ".arch .sse3 \n\t"
+    "cli \n\t"
     "push %%eax \n\t"
     "push %%ecx \n\t"
     "push %%edx \n\t"
@@ -183,11 +219,12 @@ monitor_init:
     "pop %%edx \n\t"
     "pop %%ecx \n\t"
     "pop %%eax \n\t"
+    "sti \n\t"
     : /* 没有要读的呢 */
     : [addr]"rm"(addr)
     : "edi","esi"
   );
-
+  KeLowerIrql(prev_level);
   //todo monitor until zero/one
   return;
 }
@@ -195,10 +232,14 @@ monitor_init:
 
 
 [[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilO(void* addr) {
+  irql_t prev_level;
+  //todo IRQL 判断 KeRegisterNmiCallback then KeBugCheckEx  防止NMI中断打断 打断了就直接蓝屏 !  
+  KeRaiseIrql(HIGH_LEVEL,&prev_level);
   if(!IsSupportMonitor())
     return;
   __asm__ volatile (
-    ".arch .sse3 \n\t"  
+    ".arch .sse3 \n\t"
+    "cli \n\t"      
     "push %%eax \n\t"
     "push %%ecx \n\t"
     "push %%edx \n\t"  
@@ -224,9 +265,12 @@ monitor_init:
     "pop %%edx \n\t"
     "pop %%ecx \n\t"
     "pop %%eax \n\t"
+    "sti \n\t"      
     : /* 没有要读的呢 */
     : [addr]"rm"(addr)
     : "edi"
   );
+  KeLowerIrql(prev_level);  
   return;
 }
+
