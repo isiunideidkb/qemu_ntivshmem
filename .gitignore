@@ -1,0 +1,7 @@
+*.obj
+*.ISO
+*.iso
+*.qcow2
+__pycache__
+dev/vm/.xp-pass
+dev/vm/out/
