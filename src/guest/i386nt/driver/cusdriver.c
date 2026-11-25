@@ -237,7 +237,7 @@ static NTSTATUS cus_sync_complete(PDEVICE_OBJECT DevObj, PIRP Irp, PVOID Context
 
 VOID cus_log_init(VOID);
 VOID cus_log_close(VOID);
-VOID __cdecl cus_log(const char* fmt, ...);
+VOID __cdecl cus_log(const char* fmt, ...) asm("_cus_log");
 
 /* ========================================================================
  *  Logging
