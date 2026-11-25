@@ -1,0 +1,81 @@
+联合 qemu qemuntivshmem 做一个request_interrupt的组件
+
+void qemu_request_interrupt(void* offset,i64 reserved,i64 reserved,i64 reserved);  //就是rpc_host.c:system_notifier实际上调用的
+qemu获取当前活跃的ivshmem设备 添加到activate list,然后呢 每次 qemu_request_interrupt 调用都会添加到一个叫 event_queue 的FIFO列表
+note: 每次event_queue是原子/操作加锁的 结束的时候解锁
+
+然后有一个处于while true循环的不断消费 消费必须是单个并且同步的
+
+
+唯一卡顿就是加锁 以及wait_client_writeback这个等待 请用用额外的futex或者信号量
+
+;*******************************
+;*	   pseudo-code	       *
+;*******************************
+
+
+locked queue_t event_queue;
+PCIDevice g_dev; //note we assume that there's merely one device
+void qemu_request_interrupt(void* offset,i64 reserved,i64 reserved,i64 reserved)
+{
+  unsigned long offset_v = (unsigned long)offset;
+  event_queue.append_v(
+    &offset_v,
+    sizeof unsigned long
+  );
+}
+
+futex_t another_lock;...
+void wait_client_writeback(){
+  ... 等待客户端写入 是write BAR4即可
+  //use another_lock
+}
+
+
+static unsigned long* consume_shared_v = 0;
+//call once,called at IVshmemStateClass->realize
+void consume_event() {
+  while(1) {
+    unsigned long data = event_queue.try_lend(0);
+    if(!data)
+      break;
+    pci_set_irq(g_dev,g_dev,1);
+    consume_shared_v = data;
+    pci_set_irq(g_dev,g_dev,0); //make a pulse
+    wait_client_writeback(); //这个的MMIO会自动帮我们写入
+  }
+}
+
+//配合MMIO
+
+interrupt -> MMIO -> events -> consume -> interrupt ....
+
+;******************************
+;*         interop	      *
+;* *********     *********    *
+;* * events*<--->*CONSUME*    *
+;* *********	 *ER     *    *
+;*    ^		 *********    *
+;* mmio-ops         |	      *
+;*    |          interrupt    *
+;* ********	    V	      *
+;* * MMIO * 	**********    *
+;* *HANDLE*<--->* client *    *
+;* ********	**********    *
+;* 			      *
+;******************************
+
+
+;*******************************
+;*	   pseudo-code	       *
+;*******************************
+
+WDM cus_driver2 cusdriver都重构一下 Monitor换成我的
+WDM cus_driver2写专门处理上面的 就在ivshmem-pci.c 的代码上有伪代码 然后呢 所有请求都加入 人家DeviceIoControl进来 我就取出人家想要通知的 没有我就硬等
+
+思路 可以尝试制作一个 基于 文字或者Tag的Mutex DeviceIoControl进来的 就是消费端 消费等发送 发送端就是这个拿offset的 然后拿到了就发送对应的 基于offset名字或者值
+
+这基于名字的Mutex或者消费获取队列也可以通过另外一个新的Mutex广播发生
+
+
+原子操作 扩展一下

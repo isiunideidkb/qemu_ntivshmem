@@ -1,11 +1,3 @@
-#ifndef __GNUC__
-#error "you must use GCC!"
-#endif
-
-#if (!defined(__i686__)) && (!defined(__MINGW32__))
-#error "please use i686 target gcc-mingw"
-#endif
-
 #if defined(__has_builtin) && __has_builtin(__builtin_ia32_monitor) && \
     __has_builtin(__builtin_ia32_mwait)
 #error "please disable -msse3 option"
@@ -34,15 +26,17 @@ caching type. Only write-back memory type stores to the monitored address range
 will trigger the monitor hardware. If the address range is not in memory of
 write-back type, the address monitor hardware may not be set up properly or the
 monitor hardware may not be armed. Software is also responsible for ensuring
-that • Writes that are not intended to cause the exit of a busy loop do not
+that
+• Writes that are not intended to cause the exit of a busy loop do not
 write to a location within the address region being monitored by the monitor
-hardware, • Writes intended to cause the exit of a busy loop are written to
+hardware,
+• Writes intended to cause the exit of a busy loop are written to
 locations within the monitored address region.
 
 MONITOR/MWAIT不支持Virtual-8086模式
 See IA33 SDM Volume 3, Chapter 11.10.4
 */
-#include <cpuid.h>
+
 
 
 #define PASSIVE_LEVEL       0
@@ -64,7 +58,7 @@ typedef unsigned char irql_t;
 );
 
 [[gnu::stdcall]] extern void KeLowerIrql(
-    irql_t  NewIrql 
+    irql_t  NewIrql
 );
 
 //[[gnu::stdcall]] irql_t KeGetCurrentIrql(void);
@@ -74,9 +68,11 @@ typedef unsigned char irql_t;
 
 
 
-[[gnu::cdecl]] extern void CusLog(const char* fmt, ...);
+//hack 
+[[gnu::cdecl]] extern void CusLog(const char* fmt, ...) __asm__("_cus_log");
+
 static_assert(sizeof(unsigned int) == 4);
-static inline bool IsSupportMonitor() {
+static inline bool is_support_monitor() {
   // MONITOR is of SSE3 ISA,making sure OS enabled the CR4.OSFXSR
   unsigned int cr4 = 0;
   __asm__ volatile("movl %%cr4,%[out_cr4]"
@@ -90,19 +86,19 @@ static inline bool IsSupportMonitor() {
     return false;
   }
   unsigned int eax, ebx, ecx, edx;
-  __get_cpuid_count(0x01, 0x00, &eax, &ebx, &ecx, &edx);
+//  __get_cpuid_count(0x01, 0x00, &eax, &ebx, &ecx, &edx);
   CusLog("[DEBUG] CPUID ecx %d",ecx);
   unsigned int ecx_tmp = ecx << (32 - (3 + 1));
-  unsigned int is_support_monitor = ecx_tmp >> (32 - 1);
-  if (is_support_monitor) return true;
+  unsigned int is_support_monitor_bit = ecx_tmp >> (32 - 1);
+  if (is_support_monitor_bit) return true;
   return false;
 }
 
-[[gnu::cdecl]] extern bool MonitorInit() {
+[[gnu::cdecl]] extern bool monitor_init() {
   unsigned int eax, ebx, ecx, edx;
   unsigned int out_eax, out_edx;
-monitor_init:
-  if (!IsSupportMonitor()) {
+monitor_init_retry:
+  if (!is_support_monitor()) {
     CusLog("===INITIALIZING MONITOR ISA===");
     __asm__ volatile(
         "movl $416,%%ecx \n\t"
@@ -129,19 +125,18 @@ monitor_init:
           : "rm"(out_eax), "rm"(out_edx)
           : "eax", "edx", "ecx");
       CusLog("[MONITOR] enabled MSR");
-      goto monitor_init;
+      goto monitor_init_retry;
     }
   }
   CusLog("[MONITOR] monitor ISA initialize successfully");
-  // if supported call __get_cpuid_count(0x05,0x00,&eax,&ebx,&ecx,&edx); print
-  // the SMALLEST_MONITOR_LINE_SIZE : ok
-  __get_cpuid_count(0x05, 0x00, &eax, &ebx, &ecx, &edx);
-  unsigned short* SmallestMonitorLineSize = (unsigned short*)&eax;
-  unsigned int SmallestMonitorLineSizeLog = *SmallestMonitorLineSize;
-  unsigned short* LargestMonitorLineSize = (unsigned short*)&ebx;
-  unsigned int LargestMonitorLineSizeLog = *LargestMonitorLineSize;
-  CusLog("[MONITOR] SmallestMonitorLineSize: %d", SmallestMonitorLineSizeLog);
-  CusLog("[MONITOR] LargestMonitorLineSize: %d", LargestMonitorLineSizeLog);
+  // if supported call __get_cpuid_count(0x05,0x00,&eax,&ebx,&ecx,&edx); print the SMALLEST_MONITOR_LINE_SIZE : ok
+//  __get_cpuid_count(0x05, 0x00, &eax, &ebx, &ecx, &edx);
+  unsigned short* smallest_monitor_line_size = (unsigned short*)&eax;
+  unsigned int smallest_monitor_line_size_log = *smallest_monitor_line_size;
+  unsigned short* largest_monitor_line_size = (unsigned short*)&ebx;
+  unsigned int largest_monitor_line_size_log = *largest_monitor_line_size;
+  CusLog("[MONITOR] SmallestMonitorLineSize: %d", smallest_monitor_line_size_log);
+  CusLog("[MONITOR] LargestMonitorLineSize: %d", largest_monitor_line_size_log);
   return true;
 }
 
@@ -149,7 +144,7 @@ monitor_init:
 // todo wait with ext
 // todo CR0 check to avoid non-WB cache access : ok
 
-[[gnu::cdecl]] void CorrectCache() {
+[[gnu::cdecl]] void correct_cache() {
   CusLog("=====Correct Cache=====");
   unsigned int old_cr0;
   __asm__ volatile("movl %%cr0,%[parm] \n\t"
@@ -183,16 +178,16 @@ monitor_init:
 
 //this method may block potentially
 /*
-  
+
 */
 
-[[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilZ(void* addr) {
+[[gnu::target("sse3"),gnu::cdecl]] extern void monitor_addr_and_wait_until_z(void* addr) {
   //todo IRQL 判断 KeRegisterNmiCallback then KeBugCheckEx  防止NMI中断打断 打断了就直接蓝屏 !
   irql_t prev_level;
   KeRaiseIrql(HIGH_LEVEL,&prev_level);
   //内核编程会切换上下文导致Monitor不管用 强制设置让内核不允许切换上下文 必须干到LowerIrql为止 Logical核心一次只能有一个
- 
-  if(!IsSupportMonitor())
+
+  if(!is_support_monitor())
     return;
 //todo check CPUID.05H.EDX[7:4]  c-state count
   __asm__ volatile (
@@ -235,20 +230,20 @@ monitor_init:
 
 
 
-[[gnu::target("sse3"),gnu::cdecl]] extern void MonitorAddrAndWaitUntilO(void* addr) {
+[[gnu::target("sse3"),gnu::cdecl]] extern void monitor_addr_and_wait_until_o(void* addr) {
   irql_t prev_level;
-  //todo IRQL 判断 KeRegisterNmiCallback then KeBugCheckEx  防止NMI中断打断 打断了就直接蓝屏 !  
+  //todo IRQL 判断 KeRegisterNmiCallback then KeBugCheckEx  防止NMI中断打断 打断了就直接蓝屏 !
   KeRaiseIrql(HIGH_LEVEL,&prev_level);
-  if(!IsSupportMonitor())
+  if(!is_support_monitor())
     return;
   __asm__ volatile (
     ".arch .sse3 \n\t"
-    "cli \n\t"      
+    "cli \n\t"
     "push %%eax \n\t"
     "push %%ecx \n\t"
-    "push %%edx \n\t"  
+    "push %%edx \n\t"
     "movl %[addr],%%edi \n\t"
-    "0: \n\t"    
+    "0: \n\t"
     "movl %%edi,%%eax \n\t"
     "movl $0,%%ecx \n\t"
     "movl $0,%%edx \n\t"
@@ -259,7 +254,7 @@ monitor_init:
     "jnz 1f \n\t"
     "movl $0,%%ecx \n\t"
     "movl $0b00001111,%%eax \n\t"
-    "mwait \n\t" 
+    "mwait \n\t"
     "jmp 0b \n\t"
     "1: \n\t"
     "cmp $1,%%dl \n\t"
@@ -269,12 +264,11 @@ monitor_init:
     "pop %%edx \n\t"
     "pop %%ecx \n\t"
     "pop %%eax \n\t"
-    "sti \n\t"      
+    "sti \n\t"
     : /* 没有要读的呢 */
     : [addr]"rm"(addr)
     : "edi"
   );
-  KeLowerIrql(prev_level);  
+  KeLowerIrql(prev_level);
   return;
 }
-

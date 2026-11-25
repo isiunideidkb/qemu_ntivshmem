@@ -83,8 +83,7 @@
 #endif
 
 
-[[gnu::sysv_abi]] extern void __host_wait_umonitor(void* volatile addr);
-
+[[gnu::sysv_abi,deprecated]] extern void __host_wait_umonitor(void* volatile addr);
 
 
 extern void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_dispatch_node* next)
@@ -92,7 +91,6 @@ extern void host_rpc_concat_node(struct _host_dispatch_node* prev,struct _host_d
   prev->next = next;
   return;
 }
-
 
 extern void host_rpc_del_node(struct _host_dispatch_node* node)
 {
@@ -158,7 +156,7 @@ static bool default_waiter(void* addr,host_rpc_ctx* rpc_ctx)
 #endif
 
 }
-static bool default_notifier(unsigned int number,host_rpc_ctx* rpc_ctx)
+static bool default_notifier(unsigned long offset,host_rpc_ctx* rpc_ctx)
 {
   return false;
 }
@@ -187,13 +185,9 @@ extern host_rpc_ctx* host_rpc_new_ctx(
   memset(alloc_ctx,0,sizeof(host_rpc_ctx));
   alloc_ctx->length = length;
   alloc_ctx->cur_state = INIT;
-  alloc_ctx->is_umonitor = is_support_umonitor();
+//  alloc_ctx->is_umonitor = is_support_umonitor();
+  alloc_ctx->is_umonitor = false;
   alloc_ctx->start_addr = begin_addr;
-  //todo add default waiter and notifier if is_umonitor == false : ok
-  if(! (alloc_ctx->is_umonitor)) {
-    alloc_ctx->system_waiter = default_waiter;
-    alloc_ctx->system_notifier = (host_rpc_notifier_t)default_notifier;
-  }
   return alloc_ctx;
 }
 
@@ -215,8 +209,10 @@ extern bool host_rpc_check(host_rpc_ctx* ctx)
 /* base check */  
   if(ctx == nullptr)
     goto failure;
-  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
-    goto failure;    
+//  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
+//    goto failure;
+  if(!(ctx->system_waiter) || !(ctx->system_notifier) )
+    goto failure;
   unsigned long _tmp_addr = (unsigned long)ctx->start_addr;
   if(_tmp_addr == 0 ||
      (_tmp_addr & (64 - 1)) != 0)
@@ -275,7 +271,9 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage)
     return host_rpc_check(ctx) && (unsigned long)ctx ? ( ctx->cur_state == stage ) : false;
   if(ctx == nullptr)
     goto failure;
-  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
+//  if(!(ctx->is_umonitor) && !(ctx->system_waiter))
+//    goto failure;
+  if(!(ctx->system_waiter) || !(ctx->system_notifier) )
     goto failure;
   if(stage == TERMINATE) {    
     LOG("check whether it's appropriate for TERMINATE");
@@ -306,8 +304,15 @@ extern bool host_rpc_check_stage(host_rpc_ctx* ctx,enum host_rpc_state stage)
     if(addr == 0 ||
        (addr & (64 - 1)) != 0)
       goto failure;
-    //addr本身就是length第1个 但是length并不包括0 从计数来看 想要转成addr对应的偏移只能-1
-    if((addr - (initial_length - 1)) != (unsigned long)(ctx->start_addr))
+    //caluculation formula
+    //prev_addr + length = next_addr
+    //corresepondently next_addr - accumlated_length = begin_addr;
+    
+    //<start_addr 1byte><length-1 bytes> == llength
+    //<start_addr 1byte><length-1 bytes><next_addr>
+    //next_addr = start_addr + length
+    //next_addr - length = start_addr
+    if((addr - initial_length) != (unsigned long)(ctx->start_addr))
       goto failure;
     switch(cur_node->type) {
       case HUGE_SHM:
@@ -350,21 +355,21 @@ extern bool host_rpc_set_system(host_rpc_ctx* ctx,host_rpc_waiter_t waiter,host_
   //todo check the ctx for INIT stage
   if (!host_rpc_check(ctx))
     return false;
-  if(ctx->is_umonitor) {
-    //ignore
-  }
-  else {
+//  if(ctx->is_umonitor) {
+//    //ignore
+//  }
+//  else {
     ctx->system_waiter = waiter;
     ctx->system_notifier = notifier;
-  }
+//  }
   return true;
 }
 
 static bool host_hello_handshake(host_rpc_ctx* ctx)
 {
   WRITE_HANDSHAKE(ctx);
-  bool* cap_mask_addr = ((bool*)(ctx->start_addr))+2;  
-  if(ctx->is_umonitor) {
+  bool* cap_mask_addr = ((bool*)(ctx->start_addr))+2;
+  [[deprecated]] if(ctx->is_umonitor) {
     __host_wait_umonitor(ctx->start_addr);
   }
   else {
@@ -379,6 +384,7 @@ static bool host_hello_handshake(host_rpc_ctx* ctx)
     sizeof(struct _host_raw_hh)
   );
   WRITE_HANDSHAKE(ctx);
+  (ctx->system_notifier)(0,ctx);
   return is_error;
 }
 
@@ -400,8 +406,10 @@ static bool host_dispatch_handshake(host_rpc_ctx* ctx)
 #endif
   }
   bool is_error = *cap_mask_addr | sys_waiter_stat;
-  struct _host_raw_dhh* padded_sample = { 0 };
+  struct _host_raw_dhh v_padded_sample = { 0 };
+  struct _host_raw_dhh padded_sample = &v_padded_sample;
   __myatomic_write(ctx->start_addr,padded_sample,WRITE_8BYTE);
+  (ctx->system_notifier)(0,ctx);
   //reserve the dhh for next stage checking(DH checking will access the field)
   return is_error;
 }
@@ -476,7 +484,7 @@ extern bool host_rpc_set_dispatch(
 
   char** ptr_ptr = (char**)ptr;
   struct _host_dispatch_node* cur_node = (struct _host_dispatch_node*)*ptr_ptr;
-  char** ptr_ptr2 = (ptr_ptr+(sizeof(void*)-1));
+  char** ptr_ptr2 = (ptr_ptr+sizeof(void*));
   [[gnu::unused]] host_rpc_ctx* ctx = (host_rpc_ctx*)(*ptr_ptr2);
   char flag_tobew[8] = {
     [1] = (char)0,
@@ -497,17 +505,20 @@ extern bool host_rpc_set_dispatch(
   else {
     __myatomic_write(start_addr,write_value_addr,WRITE_4BYTE);
   }
-LOOP:  
-  if(is_umonitor)
-    __host_wait_umonitor(start_addr);
-  else
-    ctx->system_waiter(start_addr,ctx);
+LOOP:
+  //notifier the termination of previous one,also represents the host writes the responde
+  ctx->system_notifier((unsigned long)ctx->start_addr - (unsigned long)start_addr,ctx);
+//  if(is_umonitor)
+//    __host_wait_umonitor(start_addr);
+//  else
+  
+  ctx->system_waiter(start_addr,ctx);
   char push_back_val = 1;
-  if(cur_node->type == FUNC && cur_node->func != nullptr)
+  if(cur_node->type == FUNC)
     (cur_node->func)(cur_node), __myatomic_write(start_addr,&push_back_val,WRITE_BYTE);
   goto LOOP;
 //  free(ptr_ptr);
-  pthread_exit(nullptr);
+//  pthread_exit(nullptr);
 //  return nullptr;
 }
 
@@ -545,7 +556,7 @@ extern bool host_rpc_dispatch(
       char* base_ptr = malloc(sizeof(void*)*2); //specific waiter and
       char** node_ptr = (char**)base_ptr;
       //和上面同理 sizeof返回的是length不包括0 但是base_ptr包括0
-      char** ctx_ptr = (char**)(base_ptr+(sizeof(void*)-1));
+      char** ctx_ptr = (char**)(base_ptr+(sizeof(void*)));
       *node_ptr = (char*)(cur_node);
       *ctx_ptr = (char*)(ctx);
       pthread_create(&_placeholder,nullptr,host_dispatch_one_node_routine_system,(void*)cur_node);

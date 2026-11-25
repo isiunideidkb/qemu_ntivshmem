@@ -98,6 +98,7 @@ extern void host_rpc_del_node(struct _host_dispatch_node* node);
 void host_rpc_remove_nodes(struct _host_dispatch_node* head); //remove a number of consequent nodes created by host_rpc_create_node
 typedef struct _host_rpc_ctx host_rpc_ctx;
 typedef bool(*host_rpc_waiter_t)(void* addr,host_rpc_ctx* rpc_ctx);
+//number: 1 indexed
 typedef bool(*host_rpc_notifier_t)(unsigned short number,host_rpc_ctx* rpc_ctx);
 typedef struct _host_rpc_ctx {
   void* start_addr;
@@ -113,11 +114,12 @@ typedef struct _host_rpc_ctx {
   } dispatch_ctx;
   enum host_rpc_state cur_state;
   
-  //enable 
-  bool is_umonitor;
-  //or enable
-  host_rpc_waiter_t system_waiter; //not available while is_umonitor == true
-  host_rpc_notifier_t system_notifier; //not available while is_umonitor == true
+  [[deprecated]] bool is_umonitor;
+
+  //host等待client的请求 : 必须 至少也是一个有地址的
+  host_rpc_waiter_t system_waiter;
+  //host : 必须 至少也是一个有地址的
+  host_rpc_notifier_t system_notifier;
   
 } host_rpc_ctx;
 
